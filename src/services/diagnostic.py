@@ -32,7 +32,8 @@ def _parse_docker_timestamp(ts: str) -> datetime | None:
             )
             ts = f"{parts[0]}.{fraction}{tz_part}"
         return datetime.fromisoformat(ts)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to parse Docker timestamp '{ts}': {e}")
         return None
 
 

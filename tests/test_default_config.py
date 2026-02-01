@@ -16,7 +16,7 @@ class TestDefaultConfigGeneration:
         content = config_path.read_text()
 
         # Check key sections exist
-        assert "monitoring:" in content
+        assert "ai:" in content
         assert "log_watching:" in content
         assert "memory_management:" in content
         assert "unraid:" in content

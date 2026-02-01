@@ -4,6 +4,7 @@ Implements direct GraphQL queries to bypass unraid-api library's broken
 header handling (library doesn't include apollo-require-preflight header).
 """
 
+import json
 import logging
 import ssl
 from typing import Any
@@ -193,7 +194,13 @@ class UnraidClientWrapper:
                         f"GraphQL request failed: {response.status} - {text}"
                     )
 
-                result = await response.json()
+                try:
+                    result = await response.json()
+                except json.JSONDecodeError as e:
+                    text = await response.text()
+                    raise UnraidConnectionError(
+                        f"Invalid JSON response: {e}. Response: {text[:200]}"
+                    )
 
                 if "errors" in result:
                     errors = result["errors"]

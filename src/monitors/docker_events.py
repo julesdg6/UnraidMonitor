@@ -147,8 +147,8 @@ class DockerEventMonitor:
         if self._client:
             try:
                 self._client.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error closing Docker client during reconnect: {e}")
 
         self._client = docker.DockerClient(base_url=self._docker_socket_path)
         self.load_initial_state()
@@ -178,8 +178,8 @@ class DockerEventMonitor:
         if self._client:
             try:
                 self._client.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error closing Docker client during stop: {e}")
         logger.info("Stopping Docker event monitor")
 
     def _event_loop(self) -> None:
@@ -214,8 +214,8 @@ class DockerEventMonitor:
                         try:
                             self._pending_alerts.get_nowait()
                             self._pending_alerts.put_nowait(event)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"Failed to recover from full alert queue: {e}")
                     except Exception as e:
                         logger.error(f"Failed to queue crash event: {e}")
 

@@ -237,7 +237,6 @@ All persistent data is stored in bind-mounted volumes:
 ├── config/
 │   └── config.yaml          # Main configuration
 └── data/
-    ├── monitor.db           # Event history database
     ├── ignored_errors.json  # Ignore patterns
     ├── mutes.json           # Container mutes
     ├── server_mutes.json    # Server mutes
