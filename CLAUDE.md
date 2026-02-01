@@ -73,8 +73,11 @@ Docker Socket → Event/Health/Log Monitors → Event Queue → Claude Analysis 
 **Actions** (`src/actions/`):
 - `docker_actions.py` - Container control with safety features (confirmations, cooldowns, whitelists)
 
-**Storage** (`src/storage/`):
-- `database.py` - SQLite with aiosqlite for events, mutes, and audit log
+**Alerts** (`src/alerts/`):
+- `manager.py` - Alert formatting and Telegram message sending
+- `mute_manager.py` - Container mute persistence (JSON-based)
+- `ignore_manager.py` - Error pattern ignore persistence (JSON-based)
+- `rate_limiter.py` - Alert deduplication and rate limiting
 
 ### Async Pattern
 All components use async/await - Docker events, Telegram, and Claude API are handled concurrently. The event queue coordinates between monitors and the analysis engine.
@@ -83,9 +86,9 @@ All components use async/await - Docker events, Telegram, and Claude API are han
 
 ```bash
 TELEGRAM_BOT_TOKEN=    # Required - from @BotFather
-ANTHROPIC_API_KEY=     # Required - for Claude analysis
-CONFIG_PATH=           # Optional - defaults to /app/config/config.yaml
-DATABASE_PATH=         # Optional - defaults to /app/data/monitor.db
+ANTHROPIC_API_KEY=     # Optional - for Claude analysis (basic alerts work without it)
+UNRAID_API_KEY=        # Optional - for Unraid server monitoring
+CONFIG_PATH=           # Optional - defaults to config/config.yaml
 LOG_LEVEL=             # Optional - defaults to INFO
 ```
 

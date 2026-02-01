@@ -1,8 +1,5 @@
 # Unraid Monitor Bot Configuration
 
-monitoring:
-  health_check_interval: 60  # seconds (used in Phase 2)
-
 # AI / Claude API configuration
 ai:
   models:

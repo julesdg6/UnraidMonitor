@@ -2,6 +2,23 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.7.1] - 2026-02-01
+
+### Fixed
+- Added logging to bare exception handlers in docker_events.py (previously silent failures)
+- Added JSONDecodeError handling in Unraid GraphQL client
+- Added debug logging for Docker timestamp parsing failures
+- Removed unused `monitoring.health_check_interval` config option
+
+### Changed
+- Updated CLAUDE.md with accurate environment variables and architecture documentation
+- Updated README.md storage section (removed non-existent database reference)
+
+### Added
+- Test coverage for alert_callbacks.py (30 tests) - restart, logs, diagnose, mute button handlers
+- Test coverage for BaseMuteManager (25 tests) - JSON persistence, expiry logic, edge cases
+- Total test count: 502 (up from 447)
+
 ## [0.7.0] - 2026-01-28
 
 ### Added

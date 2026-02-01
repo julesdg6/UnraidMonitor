@@ -387,9 +387,6 @@ class AppConfig:
 DEFAULT_CONFIG_TEMPLATE = '''# Unraid Monitor Bot Configuration
 # Generated automatically on first run
 
-monitoring:
-  health_check_interval: 60  # seconds
-
 # AI / Claude API configuration
 ai:
   models:
