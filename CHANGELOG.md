@@ -5,6 +5,7 @@ All notable changes to UnraidMonitor will be documented in this file.
 ## [0.7.1] - 2026-02-01
 
 ### Fixed
+- **High CPU usage from regex ignore patterns** - Regex patterns were being compiled on every log line check, causing 90%+ sustained CPU. Now pre-compiled once when pattern is created.
 - Added logging to bare exception handlers in docker_events.py (previously silent failures)
 - Added JSONDecodeError handling in Unraid GraphQL client
 - Added debug logging for Docker timestamp parsing failures
