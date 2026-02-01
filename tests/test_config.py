@@ -192,3 +192,92 @@ unraid:
         assert config.unraid.disk_temp_threshold == 50
         assert config.unraid.array_usage_threshold == 85
         assert config.unraid.poll_array_seconds == 300
+
+
+def test_generate_default_config_creates_file(tmp_path):
+    """Test that generate_default_config creates a new file when none exists."""
+    from src.config import generate_default_config
+
+    config_file = tmp_path / "config" / "config.yaml"
+    assert not config_file.exists()
+
+    result = generate_default_config(str(config_file))
+
+    assert result is True
+    assert config_file.exists()
+
+
+def test_generate_default_config_does_not_overwrite(tmp_path):
+    """Test that generate_default_config does not overwrite existing files."""
+    from src.config import generate_default_config
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("existing: content")
+
+    result = generate_default_config(str(config_file))
+
+    assert result is False
+    assert config_file.read_text() == "existing: content"
+
+
+def test_generated_config_is_valid_yaml(tmp_path):
+    """Test that the generated config is valid YAML that can be loaded."""
+    import yaml
+    from src.config import generate_default_config
+
+    config_file = tmp_path / "config.yaml"
+    generate_default_config(str(config_file))
+
+    content = config_file.read_text()
+    parsed = yaml.safe_load(content)
+
+    assert isinstance(parsed, dict)
+    assert "ai" in parsed
+    assert "bot" in parsed
+    assert "docker" in parsed
+    assert "log_watching" in parsed
+    assert "resource_monitoring" in parsed
+    assert "memory_management" in parsed
+    assert "unraid" in parsed
+
+
+def test_generated_config_loads_all_sections(tmp_path):
+    """Test that all config sections load properly from generated config."""
+    import os
+    from unittest.mock import patch
+    from src.config import generate_default_config, Settings, AppConfig
+
+    config_file = tmp_path / "config.yaml"
+    generate_default_config(str(config_file))
+
+    with patch.dict(os.environ, {
+        "TELEGRAM_BOT_TOKEN": "test",
+        "TELEGRAM_ALLOWED_USERS": "123",
+    }):
+        settings = Settings(config_path=str(config_file))
+        config = AppConfig(settings)
+
+        # Verify all sections load without errors
+        ai = config.ai
+        assert ai.pattern_analyzer_model == "claude-haiku-4-5-20251001"
+        assert ai.nl_processor_model == "claude-sonnet-4-5-20250929"
+
+        bot = config.bot
+        assert bot.log_max_lines == 100
+        assert bot.confirmation_timeout_seconds == 60
+
+        docker = config.docker
+        assert docker.socket_path == "unix:///var/run/docker.sock"
+
+        resource = config.resource_monitoring
+        assert resource.enabled is True
+        assert resource.default_cpu_percent == 80
+        assert resource.default_memory_percent == 85
+
+        memory = config.memory_management
+        assert memory.enabled is False
+        assert memory.critical_threshold == 95
+
+        unraid = config.unraid
+        assert unraid.enabled is False
+        assert unraid.cpu_temp_threshold == 80

@@ -11,4 +11,8 @@ venv/
 .serena/
 data/
 .worktrees/
+.git/
+.gitignore
+*.md
+tests/
 config/config.yaml

@@ -439,7 +439,17 @@ log_watching:
     - "DEBUG"
   cooldown_seconds: 900
 
-# Memory pressure management
+# Resource monitoring (CPU/memory per container)
+resource_monitoring:
+  enabled: true
+  poll_interval_seconds: 60
+  sustained_threshold_seconds: 120
+  defaults:
+    cpu_percent: 80
+    memory_percent: 85
+  containers: {}  # Per-container overrides, e.g.: plex: { cpu_percent: 95 }
+
+# Memory pressure management (system-wide)
 memory_management:
   enabled: false
   warning_threshold: 90

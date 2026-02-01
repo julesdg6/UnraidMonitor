@@ -2,6 +2,18 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.7.2] - 2026-02-01
+
+### Fixed
+- **Missing resource_monitoring in default config** - The auto-generated config.yaml was missing the resource_monitoring section, causing new deployments to use hardcoded defaults instead of configurable values.
+
+### Added
+- `.dockerignore` file to exclude config, tests, and dev files from Docker images
+- Tests for default config generation (4 new tests verifying YAML validity and section loading)
+
+### Security
+- Added `config/config.yaml` to `.gitignore` to prevent accidental commit of user configurations
+
 ## [0.7.1] - 2026-02-01
 
 ### Fixed
