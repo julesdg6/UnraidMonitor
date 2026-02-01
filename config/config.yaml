@@ -48,13 +48,6 @@ log_watching:
   # Containers to watch for log errors
   containers:
     - plex
-    - radarr
-    - sonarr
-    - lidarr
-    - readarr
-    - prowlarr
-    - qbit
-    - sab
     - tautulli
     - overseerr
     - mariadb
