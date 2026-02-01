@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -17,15 +17,24 @@ class IgnorePattern:
     match_type: Literal["substring", "regex"] = "substring"
     explanation: str | None = None
     added: str | None = None  # ISO timestamp
+    # Exclude from serialization and comparison
+    _compiled_regex: re.Pattern | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        """Pre-compile regex patterns for performance."""
+        if self.match_type == "regex":
+            try:
+                self._compiled_regex = re.compile(self.pattern, re.IGNORECASE)
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern '{self.pattern}': {e}")
+                self._compiled_regex = None
 
     def matches(self, message: str) -> bool:
         """Check if this pattern matches the given message."""
         if self.match_type == "regex":
-            try:
-                return bool(re.search(self.pattern, message, re.IGNORECASE))
-            except re.error:
-                logger.warning(f"Invalid regex pattern: {self.pattern}")
+            if self._compiled_regex is None:
                 return False
+            return bool(self._compiled_regex.search(message))
         else:
             # Substring match (case-insensitive)
             return self.pattern.lower() in message.lower()
@@ -225,10 +234,18 @@ class IgnoreManager:
         # Ensure parent directory exists
         self._json_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert to serializable format
+        # Convert to serializable format (exclude _compiled_regex)
         data = {}
         for container, patterns in self._runtime_ignores.items():
-            data[container] = [asdict(p) for p in patterns]
+            data[container] = [
+                {
+                    "pattern": p.pattern,
+                    "match_type": p.match_type,
+                    "explanation": p.explanation,
+                    "added": p.added,
+                }
+                for p in patterns
+            ]
 
         try:
             with open(self._json_path, "w", encoding="utf-8") as f:
