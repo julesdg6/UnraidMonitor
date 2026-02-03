@@ -272,6 +272,9 @@ class Settings(BaseSettings):
     config_path: str = "config/config.yaml"
     log_level: str = "INFO"
 
+    # Build-time variable (ignored at runtime, but allowed in .env for convenience)
+    docker_gid: str | None = None
+
     @field_validator("telegram_allowed_users", mode="before")
     @classmethod
     def parse_allowed_users(cls, v: Any) -> list[int]:
