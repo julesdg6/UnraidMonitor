@@ -93,8 +93,15 @@ The bot uses AI to understand your question, gather relevant data, and respond c
 
 ### 3. Configure Environment
 
-Create a `.env` file:
+**Two environment files are needed:**
 
+**Root `.env`** - Build-time variables (copy from `.env.example`):
+```env
+# Find your docker GID: ls -ln /var/run/docker.sock (4th column)
+DOCKER_GID=281
+```
+
+**`config/.env`** - Runtime secrets (copy from `config/.env.example`):
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_ALLOWED_USERS=123456789
@@ -183,32 +190,26 @@ unraid:
   array_temp_critical: 55
 ```
 
-### 5. Run with Docker
+### 5. Run with Docker Compose
 
 ```bash
-docker run -d \
-  --name unraid-monitor \
-  --restart unless-stopped \
-  -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -v $(pwd)/.env:/app/.env:ro \
-  -v $(pwd)/config:/app/config:ro \
-  ghcr.io/dervish666/unraidmonitor:latest
+# Build with your docker GID (set in .env)
+docker-compose build
+
+# Start the container
+docker-compose up -d
+
+# Check logs to verify it started correctly
+docker logs unraid-monitor-bot
 ```
 
-Or with Docker Compose:
+The included `docker-compose.yml` handles volume mounts and environment variables. For production on Unraid, config and data are stored in `/mnt/user/appdata/unraid-monitor/`.
 
-```yaml
-version: '3.8'
-services:
-  unraid-monitor:
-    image: ghcr.io/dervish666/unraidmonitor:latest
-    container_name: unraid-monitor
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./.env:/app/.env:ro
-      - ./config:/app/config:ro
-```
+**Troubleshooting Docker socket access:**
+- If you get "Permission denied" errors, verify DOCKER_GID matches your system
+- Find it with: `ls -ln /var/run/docker.sock` (4th column is the GID)
+- Rebuild after changing: `docker-compose build --no-cache`
+- As a last resort, uncomment `user: root` in docker-compose.yml
 
 ### 6. Run Locally (Development)
 

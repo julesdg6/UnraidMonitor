@@ -10,11 +10,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY config/ ./config/
 
-# Create non-root user
-# For Docker socket access, either:
-#   1. Set DOCKER_GID to match host's docker.sock group (ls -la /var/run/docker.sock)
-#   2. Or use "user: root" in docker-compose.yml
-ARG DOCKER_GID=281
+# Create non-root user with Docker socket access
+# DOCKER_GID should match host's docker.sock group: ls -ln /var/run/docker.sock
+# Set via .env file in project root (see .env.example)
+# If socket access fails, uncomment "user: root" in docker-compose.yml as fallback
+ARG DOCKER_GID=0
 RUN useradd -m appuser && \
     chown -R appuser:appuser /app && \
     if [ "$DOCKER_GID" != "0" ]; then \
