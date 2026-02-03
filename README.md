@@ -1,147 +1,277 @@
 # UnraidMonitor
 
-A Telegram bot for monitoring Docker containers on Unraid servers. Get real-time alerts, check container status, view logs, and control containers - all from Telegram.
+A Telegram bot for monitoring Docker containers and Unraid servers. Get real-time alerts, check container status, view logs, and control containers - all from Telegram.
 
 ## Features
 
-- **Container Status** - Overview of all running/stopped containers
-- **Resource Monitoring** - CPU/memory usage with threshold alerts
+- **Container Monitoring** - Status, health checks, and crash detection
+- **Resource Alerts** - CPU/memory usage with configurable thresholds
 - **Log Watching** - Automatic alerts when errors appear in container logs
-- **Crash Alerts** - Instant notifications when containers crash with quick action buttons
-- **AI Diagnostics** - Claude-powered log analysis for troubleshooting
+- **AI Diagnostics** - Claude-powered log analysis and troubleshooting
 - **Smart Ignore Patterns** - AI-generated patterns to filter known errors
 - **Container Control** - Start, stop, restart, and pull containers remotely
-- **Unraid Server Monitoring** - Temperature, memory, UPS status, and array health
-- **Memory Pressure Management** - Automatic container priority handling during memory pressure
-- **Mute System** - Temporarily silence alerts per container, server metrics, or array
+- **Unraid Server Monitoring** - CPU/memory, temperatures, UPS status, and array health
+- **Memory Pressure Management** - Automatic container priority handling during high memory
+- **Mute System** - Temporarily silence alerts per container, server, or array
+- **Natural Language Chat** - Ask questions naturally instead of using commands
 
-## Commands
+---
 
-### Container Commands
+## Table of Contents
 
-| Command | Description |
-|---------|-------------|
-| `/status` | Container status overview |
-| `/status <name>` | Details for specific container |
-| `/resources` | CPU/memory usage for all containers |
-| `/resources <name>` | Detailed resource stats with thresholds |
-| `/logs <name> [n]` | Last n log lines (default 20) |
-| `/diagnose <name> [n]` | AI analysis of container logs |
-| `/restart <name>` | Restart a container |
-| `/stop <name>` | Stop a container |
-| `/start <name>` | Start a container |
-| `/pull <name>` | Pull latest image and recreate |
+- [Installation](#installation)
+  - [Unraid Community Apps](#unraid-community-apps-recommended)
+  - [Docker on Unraid (Manual)](#docker-on-unraid-manual)
+  - [Docker on Other Systems](#docker-on-other-systems)
+- [Prerequisites](#prerequisites)
+- [Configuration](#configuration)
+- [Commands](#commands)
+- [Alert Examples](#alert-examples)
+- [Troubleshooting](#troubleshooting)
 
-### Unraid Server Commands
+---
 
-| Command | Description |
-|---------|-------------|
-| `/server` | Server overview (CPU, memory, temps) |
-| `/server detailed` | Full server metrics including per-core temps |
-| `/array` | Array status and disk health |
-| `/disks` | Detailed disk information |
+## Installation
 
-### Alert Management
+### Unraid Community Apps (Recommended)
 
-| Command | Description |
-|---------|-------------|
-| `/mute <name> <duration>` | Mute container alerts (e.g., `/mute plex 2h`) |
-| `/unmute <name>` | Unmute a container |
-| `/mute-server <duration>` | Mute server alerts |
-| `/unmute-server` | Unmute server alerts |
-| `/mute-array <duration>` | Mute array alerts |
-| `/unmute-array` | Unmute array alerts |
-| `/mutes` | Show all active mutes |
-| `/ignore` | Show recent errors to create ignore patterns |
-| `/ignores` | List all ignore patterns |
-| `/cancel-kill` | Cancel pending memory pressure container kill |
+The easiest way to install on Unraid.
 
-### Quick Access
+1. **Install from Community Apps**
+   - Open the Unraid web UI
+   - Go to **Apps** tab
+   - Search for "Unraid Monitor Bot"
+   - Click **Install**
 
-| Command | Description |
-|---------|-------------|
-| `/manage` | Dashboard with buttons for status, resources, ignores & mutes |
-| `/help` | Show help message |
+2. **Configure the template**
+   - `TELEGRAM_BOT_TOKEN` - Your bot token ([how to get one](#1-create-a-telegram-bot))
+   - `TELEGRAM_ALLOWED_USERS` - Your Telegram user ID ([how to find it](#2-get-your-telegram-user-id))
+   - `ANTHROPIC_API_KEY` (optional) - Enables AI diagnostics
+   - `UNRAID_API_KEY` (optional) - Enables server monitoring
 
-Partial container names work: `/status rad` matches `radarr`
+3. **Start the container**
 
-## Natural Language Chat
+4. **Message your bot** on Telegram - send `/help` to verify it's working
 
-Instead of using commands, you can ask questions naturally:
+5. **Configure features** (optional)
+   - Edit `/mnt/user/appdata/unraid-monitor/config/config.yaml`
+   - See [Configuration](#configuration) for options
+   - Restart the container to apply changes
 
-- "What's wrong with plex?"
-- "Why is my server slow?"
-- "Is anything crashing?"
-- "Restart radarr" (will ask for confirmation)
+---
 
-The bot uses AI to understand your question, gather relevant data, and respond conversationally. Follow-up questions work too - say "restart it" after discussing a container.
+### Docker on Unraid (Manual)
 
-**Note:** Requires `ANTHROPIC_API_KEY` to be configured.
+If not using Community Apps, you can set it up manually.
 
-## Quick Start
+#### Step 1: Create directories
+
+```bash
+mkdir -p /mnt/user/appdata/unraid-monitor/{config,data}
+```
+
+#### Step 2: Create the environment file
+
+Create `/mnt/user/appdata/unraid-monitor/config/.env`:
+
+```env
+# Required
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_ALLOWED_USERS=123456789
+
+# Optional - enables AI features
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# Optional - enables Unraid server monitoring
+UNRAID_API_KEY=your_unraid_api_key_here
+```
+
+#### Step 3: Add the container in Unraid
+
+Go to **Docker** → **Add Container** and configure:
+
+| Field | Value |
+|-------|-------|
+| Name | `unraid-monitor-bot` |
+| Repository | `ghcr.io/dervish666/unraidmonitor:latest` |
+| Network Type | `bridge` or your preferred network |
+
+**Add these paths:**
+
+| Container Path | Host Path | Access |
+|----------------|-----------|--------|
+| `/app/config` | `/mnt/user/appdata/unraid-monitor/config` | Read/Write |
+| `/app/data` | `/mnt/user/appdata/unraid-monitor/data` | Read/Write |
+| `/var/run/docker.sock` | `/var/run/docker.sock` | Read Only |
+
+**Add these variables:**
+
+| Name | Value |
+|------|-------|
+| `TELEGRAM_BOT_TOKEN` | Your bot token |
+| `TELEGRAM_ALLOWED_USERS` | Your user ID |
+| `ANTHROPIC_API_KEY` | (optional) Your API key |
+| `UNRAID_API_KEY` | (optional) Your API key |
+| `TZ` | Your timezone (e.g., `Europe/London`) |
+
+#### Step 4: Start and verify
+
+Start the container and check the logs for any errors. Message your bot on Telegram with `/help`.
+
+---
+
+### Docker on Other Systems
+
+For non-Unraid systems (Ubuntu, Debian, etc.).
+
+#### Step 1: Clone the repository
+
+```bash
+git clone https://github.com/dervish666/UnraidMonitor.git
+cd UnraidMonitor
+```
+
+#### Step 2: Create environment file
+
+```bash
+cp config/.env.example config/.env
+```
+
+Edit `config/.env` with your values:
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_ALLOWED_USERS=123456789
+ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional
+```
+
+#### Step 3: Check your Docker socket GID
+
+```bash
+ls -ln /var/run/docker.sock
+```
+
+Look at the 4th column (group number). On Unraid it's `281`, on Ubuntu it's often `999` or `docker`.
+
+If it's **not** `281`, create a `.env` file in the project root:
+
+```bash
+echo "DOCKER_GID=999" > .env  # replace 999 with your actual GID
+```
+
+#### Step 4: Update docker-compose.yml for your system
+
+Edit `docker-compose.yml` and change the volume paths:
+
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock:ro
+  - ./config:/app/config      # Use local directories
+  - ./data:/app/data
+```
+
+Also remove or comment out the external network if you don't have one:
+
+```yaml
+networks:
+  - bridge  # or remove the networks section entirely
+
+# Comment out this section:
+# networks:
+#   docknet:
+#     external: true
+```
+
+#### Step 5: Build and run
+
+```bash
+docker-compose build
+docker-compose up -d
+docker logs unraid-monitor-bot
+```
+
+---
+
+## Prerequisites
 
 ### 1. Create a Telegram Bot
 
-1. Message [@BotFather](https://t.me/BotFather) on Telegram
-2. Send `/newbot` and follow the prompts
-3. Save the bot token
+1. Open Telegram and message [@BotFather](https://t.me/BotFather)
+2. Send `/newbot`
+3. Follow the prompts to name your bot
+4. Copy the **bot token** (looks like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
 
 ### 2. Get Your Telegram User ID
 
 1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
-2. It will reply with your user ID
+2. It will reply with your numeric user ID (e.g., `123456789`)
 
-### 3. Configure Environment
+This ID is used to restrict who can control your bot. You can add multiple IDs separated by commas: `123456789,987654321`
 
-**Two environment files are needed:**
+### 3. Get an Anthropic API Key (Optional)
 
-**Root `.env`** - Build-time variables (copy from `.env.example`):
-```env
-# Find your docker GID: ls -ln /var/run/docker.sock (4th column)
-DOCKER_GID=281
-```
+Required for AI-powered features:
+- Log analysis and diagnostics (`/diagnose`)
+- Smart ignore pattern generation
+- Natural language chat
 
-**`config/.env`** - Runtime secrets (copy from `config/.env.example`):
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_ALLOWED_USERS=123456789
+1. Sign up at [console.anthropic.com](https://console.anthropic.com)
+2. Go to API Keys and create a new key
+3. Add it as `ANTHROPIC_API_KEY`
 
-# Optional: Enable AI diagnostics and smart ignore patterns
-ANTHROPIC_API_KEY=your_api_key_here
+### 4. Get an Unraid API Key (Optional)
 
-# Optional: Enable Unraid server monitoring
-UNRAID_API_KEY=your_unraid_api_key_here
-```
+Required for Unraid server monitoring (CPU, memory, temps, array status).
 
-### 4. Configure Settings (Optional)
+1. In Unraid web UI, go to **Settings** → **Management Access**
+2. Generate an API key
+3. Add it as `UNRAID_API_KEY`
 
-Create `config/config.yaml`:
+---
+
+## Configuration
+
+Configuration is stored in `config/config.yaml`. A default file is created on first run.
+
+**Location:**
+- Unraid: `/mnt/user/appdata/unraid-monitor/config/config.yaml`
+- Docker: `./config/config.yaml` (relative to project root)
+
+### Essential Settings
 
 ```yaml
-# Containers to ignore in status reports
-ignored_containers:
-  - some-temp-container
-
-# Containers that cannot be controlled via Telegram
-protected_containers:
-  - mariadb
-  - postgresql14
-
-# Log watching configuration
+# Containers to watch for log errors
 log_watching:
   containers:
     - plex
     - radarr
     - sonarr
+    - lidarr
   error_patterns:
-    - error
-    - exception
-    - fatal
+    - "error"
+    - "exception"
+    - "fatal"
+    - "failed"
+    - "critical"
   ignore_patterns:
-    - DeprecationWarning
-  cooldown_seconds: 900  # 15 minutes between alerts
+    - "DeprecationWarning"
+    - "DEBUG"
+  cooldown_seconds: 900  # 15 min between alerts for same container
 
-# Resource monitoring
+# Containers to hide from status reports
+ignored_containers:
+  - some-temp-container
+
+# Containers that cannot be controlled via Telegram (safety)
+protected_containers:
+  - unraid-monitor-bot
+  - mariadb
+  - postgresql14
+```
+
+### Resource Monitoring
+
+```yaml
 resource_monitoring:
   enabled: true
   poll_interval_seconds: 60
@@ -154,117 +284,133 @@ resource_monitoring:
   # Per-container overrides
   containers:
     plex:
-      cpu_percent: 90
+      cpu_percent: 95    # Plex often uses high CPU
       memory_percent: 90
-    qbit:
-      cpu_percent: 95
+    handbrake:
+      cpu_percent: 100   # Expected to max out
+```
 
-# Memory pressure management
+### Memory Pressure Management
+
+Automatically kills low-priority containers when system memory is critical.
+
+```yaml
 memory_management:
-  enabled: true
-  poll_interval_seconds: 30
-  warning_threshold_percent: 85
-  critical_threshold_percent: 95
-  recovery_threshold_percent: 80
-  kill_delay_seconds: 60  # Time to cancel before killing
+  enabled: false  # Disabled by default - enable with caution
+  warning_threshold: 90      # Notify at this %
+  critical_threshold: 95     # Start killing at this %
+  safe_threshold: 80         # Offer restart when below this
+  kill_delay_seconds: 60     # Warning before killing
+  stabilization_wait: 180    # Wait between kills
 
-  # Containers to kill during memory pressure (lowest priority first)
+  # Never kill these (highest priority)
+  priority_containers:
+    - plex
+    - mariadb
+
+  # Kill these in order during memory pressure (lowest priority first)
   killable_containers:
     - handbrake
     - tdarr
+```
 
-# Unraid server monitoring
+### Unraid Server Monitoring
+
+```yaml
 unraid:
   enabled: true
-  host: "192.168.1.100"
+  host: "192.168.1.100"  # Your Unraid IP
   port: 443
   use_ssl: true
-  verify_ssl: false
-  poll_interval_seconds: 60
+  verify_ssl: false  # Set true if using valid SSL cert
 
-  # Alert thresholds
-  cpu_temp_warning: 70
-  cpu_temp_critical: 85
-  memory_warning_percent: 85
-  array_temp_warning: 45
-  array_temp_critical: 55
+  polling:
+    system: 30   # CPU/memory poll interval
+    array: 300   # Array status poll interval
+    ups: 60      # UPS status poll interval
+
+  thresholds:
+    cpu_temp: 80         # Alert above this temp (C)
+    cpu_usage: 95        # Alert above this %
+    memory_usage: 90     # Alert above this %
+    disk_temp: 50        # Alert above this temp (C)
+    array_usage: 85      # Alert above this %
+    ups_battery: 30      # Alert below this %
 ```
 
-### 5. Run with Docker Compose
+---
 
-```bash
-# Build with your docker GID (set in .env)
-docker-compose build
+## Commands
 
-# Start the container
-docker-compose up -d
+### Container Commands
 
-# Check logs to verify it started correctly
-docker logs unraid-monitor-bot
-```
+| Command | Description |
+|---------|-------------|
+| `/status` | Overview of all containers |
+| `/status <name>` | Details for specific container |
+| `/resources` | CPU/memory usage for all containers |
+| `/resources <name>` | Detailed stats with thresholds |
+| `/logs <name> [n]` | Last n log lines (default 20) |
+| `/diagnose <name> [n]` | AI analysis of logs |
+| `/restart <name>` | Restart a container |
+| `/stop <name>` | Stop a container |
+| `/start <name>` | Start a container |
+| `/pull <name>` | Pull latest image and recreate |
 
-The included `docker-compose.yml` handles volume mounts and environment variables. For production on Unraid, config and data are stored in `/mnt/user/appdata/unraid-monitor/`.
+**Tip:** Partial names work - `/status rad` matches `radarr`
 
-**Troubleshooting Docker socket access:**
-- If you get "Permission denied" errors, verify DOCKER_GID matches your system
-- Find it with: `ls -ln /var/run/docker.sock` (4th column is the GID)
-- Rebuild after changing: `docker-compose build --no-cache`
-- As a last resort, uncomment `user: root` in docker-compose.yml
+### Unraid Server Commands
 
-### 6. Run Locally (Development)
+| Command | Description |
+|---------|-------------|
+| `/server` | Server overview (CPU, memory, temps) |
+| `/server detailed` | Full metrics including per-core temps |
+| `/array` | Array status and disk health |
+| `/disks` | Detailed disk information |
 
-```bash
-# Clone repository
-git clone https://github.com/dervish666/UnraidMonitor.git
-cd UnraidMonitor
+### Alert Management
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
+| Command | Description |
+|---------|-------------|
+| `/mute <name> <duration>` | Mute container (e.g., `/mute plex 2h`) |
+| `/unmute <name>` | Unmute a container |
+| `/mute-server <duration>` | Mute server alerts |
+| `/unmute-server` | Unmute server alerts |
+| `/mute-array <duration>` | Mute array alerts |
+| `/unmute-array` | Unmute array alerts |
+| `/mutes` | Show all active mutes |
+| `/ignore` | Show recent errors to create ignore patterns |
+| `/ignores` | List all ignore patterns |
+| `/cancel-kill` | Cancel pending memory pressure kill |
 
-# Install dependencies
-pip install -r requirements.txt
+**Duration formats:** `30m`, `2h`, `1d`, `1w`
 
-# Run
-python -m src.main
-```
+### Quick Access
 
-## Storage
+| Command | Description |
+|---------|-------------|
+| `/manage` | Dashboard with quick action buttons |
+| `/help` | Show help message |
 
-All persistent data is stored in bind-mounted volumes:
+### Natural Language Chat
 
-```
-/mnt/user/appdata/unraid-monitor/
-├── config/
-│   └── config.yaml          # Main configuration
-└── data/
-    ├── ignored_errors.json  # Ignore patterns
-    ├── mutes.json           # Container mutes
-    ├── server_mutes.json    # Server mutes
-    └── array_mutes.json     # Array mutes
-```
+Instead of commands, you can ask questions naturally:
 
-On first run, a default `config.yaml` is created automatically.
+- "What's wrong with plex?"
+- "Why is my server slow?"
+- "Is anything crashing?"
+- "Show me radarr logs"
+- "Restart sonarr" (asks for confirmation)
 
-### First Run Setup
+Follow-up questions work too - say "restart it" after discussing a container.
 
-1. Create the appdata directory:
-   ```bash
-   mkdir -p /mnt/user/appdata/unraid-monitor/{config,data}
-   ```
+**Note:** Requires `ANTHROPIC_API_KEY` to be configured.
 
-2. Start the container - it will create a default config
-
-3. Edit `/mnt/user/appdata/unraid-monitor/config/config.yaml` to:
-   - Add containers to watch
-   - Configure memory management
-   - Enable Unraid monitoring
-
-4. Restart the container to apply changes
+---
 
 ## Alert Examples
 
-All alerts include quick action buttons for instant response.
+All alerts include quick action buttons.
 
 ### Crash Alert
 ```
@@ -304,14 +450,99 @@ Latest: Database connection failed: timeout
 [📋 Logs] [🔍 Diagnose]
 ```
 
-The "Ignore Similar" button uses AI to generate smart patterns that match similar errors without catching unrelated messages.
+---
+
+## Troubleshooting
+
+### Bot not responding
+
+1. Check the container is running: `docker ps | grep unraid-monitor`
+2. Check logs for errors: `docker logs unraid-monitor-bot`
+3. Verify `TELEGRAM_BOT_TOKEN` is correct
+4. Verify your user ID is in `TELEGRAM_ALLOWED_USERS`
+
+### "Permission denied" errors
+
+This means the container can't access the Docker socket.
+
+1. Check your Docker socket GID:
+   ```bash
+   ls -ln /var/run/docker.sock
+   ```
+   Look at the 4th column (e.g., `281` on Unraid, `999` on Ubuntu)
+
+2. If using docker-compose, set DOCKER_GID in `.env`:
+   ```bash
+   echo "DOCKER_GID=999" > .env
+   ```
+
+3. Rebuild the container:
+   ```bash
+   docker-compose build --no-cache
+   docker-compose up -d
+   ```
+
+4. **Last resort:** Edit `docker-compose.yml` and uncomment `user: root`
+
+### AI features not working
+
+- Verify `ANTHROPIC_API_KEY` is set correctly
+- Check logs for API errors
+- The bot works without AI - you'll get basic alerts, but `/diagnose` and natural language chat won't work
+
+### Unraid monitoring not working
+
+- Verify `UNRAID_API_KEY` is set
+- Check the `unraid` section in `config.yaml` has correct `host` and `port`
+- If using self-signed certs, set `verify_ssl: false`
+
+### Container not starting
+
+Check logs immediately after start:
+```bash
+docker logs unraid-monitor-bot
+```
+
+Common issues:
+- Missing `TELEGRAM_BOT_TOKEN` or `TELEGRAM_ALLOWED_USERS`
+- Invalid configuration in `config.yaml`
+- Docker socket permission issues (see above)
+
+### Changes to config.yaml not applying
+
+Restart the container after editing config:
+```bash
+docker restart unraid-monitor-bot
+```
+
+---
+
+## Data Storage
+
+All persistent data is stored in mounted volumes:
+
+```
+config/
+├── config.yaml           # Main configuration
+└── .env                  # Environment variables (secrets)
+
+data/
+├── ignored_errors.json   # Ignore patterns
+├── mutes.json            # Container mutes
+├── server_mutes.json     # Server mutes
+└── array_mutes.json      # Array mutes
+```
+
+---
 
 ## Requirements
 
-- Python 3.11+
-- Docker access (via socket)
+- Docker
 - Telegram Bot Token
-- (Optional) Anthropic API key for AI diagnostics
+- (Optional) Anthropic API key for AI features
+- (Optional) Unraid API key for server monitoring
+
+---
 
 ## License
 
