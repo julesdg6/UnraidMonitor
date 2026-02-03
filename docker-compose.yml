@@ -4,10 +4,11 @@ services:
       context: .
       args:
         # DOCKER_GID must match docker.sock group on host for non-root access
+        # Default 281 works for Unraid. For other systems:
         # 1. Find your GID: ls -ln /var/run/docker.sock (4th column)
-        # 2. Copy .env.example to .env and set DOCKER_GID=<your-gid>
+        # 2. Set DOCKER_GID in .env or export before building
         # 3. Rebuild: docker-compose build --no-cache
-        DOCKER_GID: ${DOCKER_GID:-0}
+        DOCKER_GID: ${DOCKER_GID:-281}
     container_name: unraid-monitor-bot
     restart: unless-stopped
     # If DOCKER_GID doesn't work, uncomment this to run as root:

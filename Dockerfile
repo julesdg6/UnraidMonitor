@@ -12,9 +12,9 @@ COPY config/ ./config/
 
 # Create non-root user with Docker socket access
 # DOCKER_GID should match host's docker.sock group: ls -ln /var/run/docker.sock
-# Set via .env file in project root (see .env.example)
+# Default 281 works for Unraid; override via .env or docker-compose build args
 # If socket access fails, uncomment "user: root" in docker-compose.yml as fallback
-ARG DOCKER_GID=0
+ARG DOCKER_GID=281
 RUN useradd -m appuser && \
     chown -R appuser:appuser /app && \
     if [ "$DOCKER_GID" != "0" ]; then \
