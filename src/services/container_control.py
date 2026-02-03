@@ -31,8 +31,8 @@ class ContainerController:
         except docker.errors.NotFound:
             return f"❌ Container '{container_name}' not found"
         except Exception as e:
-            logger.error(f"Failed to restart {container_name}: {e}")
-            return f"❌ Failed to restart {container_name}: {e}"
+            logger.error(f"Failed to restart {container_name}: {e}", exc_info=True)
+            return f"❌ Failed to restart {container_name}. Check logs for details."
 
     async def stop(self, container_name: str) -> str:
         """Stop a container. Returns a status message."""
@@ -47,8 +47,8 @@ class ContainerController:
         except docker.errors.NotFound:
             return f"❌ Container '{container_name}' not found"
         except Exception as e:
-            logger.error(f"Failed to stop {container_name}: {e}")
-            return f"❌ Failed to stop {container_name}: {e}"
+            logger.error(f"Failed to stop {container_name}: {e}", exc_info=True)
+            return f"❌ Failed to stop {container_name}. Check logs for details."
 
     async def start(self, container_name: str) -> str:
         """Start a container. Returns a status message."""
@@ -63,8 +63,8 @@ class ContainerController:
         except docker.errors.NotFound:
             return f"❌ Container '{container_name}' not found"
         except Exception as e:
-            logger.error(f"Failed to start {container_name}: {e}")
-            return f"❌ Failed to start {container_name}: {e}"
+            logger.error(f"Failed to start {container_name}: {e}", exc_info=True)
+            return f"❌ Failed to start {container_name}. Check logs for details."
 
     async def pull_and_recreate(self, container_name: str) -> str:
         """Pull latest image and recreate container. Returns a status message."""
@@ -98,8 +98,8 @@ class ContainerController:
         except docker.errors.NotFound:
             return f"❌ Container '{container_name}' not found"
         except Exception as e:
-            logger.error(f"Failed to pull and recreate {container_name}: {e}")
-            return f"❌ Failed to update {container_name}: {e}"
+            logger.error(f"Failed to pull and recreate {container_name}: {e}", exc_info=True)
+            return f"❌ Failed to update {container_name}. Check logs for details."
 
     def _extract_run_config(self, attrs: dict) -> dict:
         """Extract run configuration from container attributes."""

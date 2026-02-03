@@ -7,8 +7,8 @@ services:
         DOCKER_GID: ${DOCKER_GID:-999}
     container_name: unraid-monitor-bot
     restart: unless-stopped
-    # Run as root to access Docker socket (simpler and reliable)
-    user: root
+    # Runs as appuser (UID 1000) in docker group - no root needed
+    # Set DOCKER_GID to match your host's docker group: getent group docker | cut -d: -f3
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}

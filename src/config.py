@@ -466,7 +466,9 @@ unraid:
   host: "192.168.0.190"
   port: 443
   use_ssl: true
-  verify_ssl: false
+  # WARNING: Set verify_ssl to true in production for security
+  # Only set to false if using self-signed certs and you understand the risk
+  verify_ssl: true
   polling:
     system: 30
     array: 300

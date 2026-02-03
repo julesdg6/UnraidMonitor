@@ -142,13 +142,17 @@ def ignore_selection_handler(
                 )
 
                 if result:
-                    if ignore_manager.add_ignore_pattern(
+                    success, msg = ignore_manager.add_ignore_pattern(
                         container=container,
                         pattern=result["pattern"],
                         match_type=result["match_type"],
                         explanation=result["explanation"],
-                    ):
+                    )
+                    if success:
                         added.append((result["pattern"], result["explanation"]))
+                    elif msg != "Pattern already exists":
+                        # Log validation failures
+                        logger.warning(f"Failed to add pattern for {container}: {msg}")
                     continue
 
             # Fallback to simple substring
@@ -246,18 +250,21 @@ def ignore_similar_callback(
             )
 
             if result:
-                ignore_manager.add_ignore_pattern(
+                success, msg = ignore_manager.add_ignore_pattern(
                     container=container,
                     pattern=result["pattern"],
                     match_type=result["match_type"],
                     explanation=result["explanation"],
                 )
-                await callback.message.answer(
-                    f"✅ Ignoring: {result['explanation']}\n"
-                    f"Pattern: `{result['pattern']}`",
-                    parse_mode="Markdown",
-                )
-                await callback.answer("Pattern added")
+                if success:
+                    await callback.message.answer(
+                        f"✅ Ignoring: {result['explanation']}\n"
+                        f"Pattern: `{result['pattern']}`",
+                        parse_mode="Markdown",
+                    )
+                    await callback.answer("Pattern added")
+                else:
+                    await callback.answer(f"Failed: {msg}")
                 return
 
         # Fallback to substring

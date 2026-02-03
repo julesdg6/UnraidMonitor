@@ -136,6 +136,12 @@ class UnraidClientWrapper:
             if self._verify_ssl:
                 ssl_context: ssl.SSLContext | bool = True
             else:
+                logger.warning(
+                    "SSL certificate verification disabled for Unraid connection to %s. "
+                    "This is insecure and allows man-in-the-middle attacks. "
+                    "Consider enabling verify_ssl in production.",
+                    self._host,
+                )
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE

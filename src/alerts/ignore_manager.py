@@ -1,12 +1,50 @@
 import json
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 logger = logging.getLogger(__name__)
+
+# Maximum length for regex patterns to prevent complexity attacks
+MAX_REGEX_LENGTH = 200
+
+# Patterns that could cause catastrophic backtracking (ReDoS)
+_REDOS_PATTERNS = [
+    re.compile(r"\(\.\*\)\+"),  # (.*)+
+    re.compile(r"\(\.\+\)\+"),  # (.+)+
+    re.compile(r"\(\[.*?\]\+\)\+"),  # ([...]+)+
+    re.compile(r"\(\.\*\?\)\+"),  # (.*?)+
+    re.compile(r"\(\.\+\?\)\+"),  # (.+?)+
+]
+
+
+def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
+    """Validate a regex pattern for safety and correctness.
+
+    Args:
+        pattern: The regex pattern to validate.
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is empty.
+    """
+    if len(pattern) > MAX_REGEX_LENGTH:
+        return False, f"Pattern too long (max {MAX_REGEX_LENGTH} chars)"
+
+    # Check for ReDoS patterns
+    for redos in _REDOS_PATTERNS:
+        if redos.search(pattern):
+            return False, "Pattern may cause performance issues (nested quantifiers)"
+
+    try:
+        re.compile(pattern)
+        return True, ""
+    except re.error as e:
+        return False, str(e)
 
 
 @dataclass
@@ -76,7 +114,7 @@ class IgnoreManager:
         pattern: str,
         match_type: Literal["substring", "regex"] = "substring",
         explanation: str | None = None,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Add a runtime ignore pattern with optional regex support.
 
         Args:
@@ -86,15 +124,21 @@ class IgnoreManager:
             explanation: Human-readable explanation of what this pattern matches.
 
         Returns:
-            True if added, False if already exists.
+            Tuple of (success, message). If success is False, message explains why.
         """
+        # Validate regex patterns for safety
+        if match_type == "regex":
+            is_valid, error = validate_regex_pattern(pattern)
+            if not is_valid:
+                return False, f"Invalid regex: {error}"
+
         if container not in self._runtime_ignores:
             self._runtime_ignores[container] = []
 
         # Check if already exists (by pattern string, case-insensitive)
         for existing in self._runtime_ignores[container]:
             if existing.pattern.lower() == pattern.lower():
-                return False
+                return False, "Pattern already exists"
 
         ignore_pattern = IgnorePattern(
             pattern=pattern,
@@ -105,7 +149,7 @@ class IgnoreManager:
         self._runtime_ignores[container].append(ignore_pattern)
         self._save_runtime_ignores()
         logger.info(f"Added ignore for {container}: {pattern} ({match_type})")
-        return True
+        return True, "Pattern added"
 
     def add_ignore(self, container: str, message: str) -> bool:
         """Add a runtime ignore pattern (backward compatible).
@@ -115,12 +159,13 @@ class IgnoreManager:
         Returns:
             True if added, False if already exists.
         """
-        return self.add_ignore_pattern(
+        success, _ = self.add_ignore_pattern(
             container=container,
             pattern=message,
             match_type="substring",
             explanation=None,
         )
+        return success
 
     def get_all_ignores(self, container: str) -> list[tuple[str, str, str | None]]:
         """Get all ignores for a container as (pattern, source, explanation) tuples.
@@ -230,7 +275,7 @@ class IgnoreManager:
             self._runtime_ignores = {}
 
     def _save_runtime_ignores(self) -> None:
-        """Save runtime ignores to JSON file in new format."""
+        """Save runtime ignores to JSON file using atomic write pattern."""
         # Ensure parent directory exists
         self._json_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -248,7 +293,22 @@ class IgnoreManager:
             ]
 
         try:
-            with open(self._json_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            # Atomic write: write to temp file, then rename
+            fd, temp_path = tempfile.mkstemp(
+                dir=self._json_path.parent,
+                prefix=".tmp_ignores_",
+                suffix=".json",
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(temp_path, self._json_path)  # Atomic on POSIX
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
         except IOError as e:
             logger.error(f"Failed to save runtime ignores: {e}")

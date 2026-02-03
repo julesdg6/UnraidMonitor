@@ -1,6 +1,7 @@
 """Callback handlers for alert action buttons."""
 
 import logging
+import re
 from datetime import timedelta
 from typing import Callable, Awaitable, Any
 
@@ -12,8 +13,20 @@ import docker
 from src.state import ContainerStateManager
 from src.services.container_control import ContainerController
 from src.services.diagnostic import DiagnosticService
+from src.utils.sanitize import sanitize_logs_for_display
 
 logger = logging.getLogger(__name__)
+
+# Valid Docker container name pattern (alphanumeric, dash, underscore, dot, colon)
+# Docker allows: [a-zA-Z0-9][a-zA-Z0-9_.-]* but we also allow colons for compose names
+_VALID_CONTAINER_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
+
+
+def _validate_container_name(name: str) -> bool:
+    """Validate that a string looks like a valid container name."""
+    if not name or len(name) > 256:
+        return False
+    return bool(_VALID_CONTAINER_NAME.match(name))
 
 
 def restart_callback(
@@ -34,6 +47,12 @@ def restart_callback(
             return
 
         container_name = parts[1]
+
+        # Validate container name format
+        if not _validate_container_name(container_name):
+            logger.warning(f"Invalid container name in callback: {container_name[:50]}")
+            await callback.answer("Invalid container name")
+            return
 
         # Find container
         matches = state.find_by_name(container_name)
@@ -89,6 +108,12 @@ def logs_callback(
 
         container_name = prefix_parts[1]
 
+        # Validate container name format
+        if not _validate_container_name(container_name):
+            logger.warning(f"Invalid container name in callback: {container_name[:50]}")
+            await callback.answer("Invalid container name")
+            return
+
         # Cap at reasonable limit
         lines = min(lines, max_lines)
 
@@ -112,6 +137,9 @@ def logs_callback(
             if len(log_text) > max_chars:
                 log_text = log_text[-max_chars:]
                 log_text = "...(truncated)\n" + log_text
+
+            # Sanitize to remove sensitive data before display
+            log_text = sanitize_logs_for_display(log_text)
 
             response = f"*Logs: {actual_name}* (last {lines} lines)\n\n```\n{log_text}\n```"
 
@@ -156,6 +184,12 @@ def diagnose_callback(
             return
 
         container_name = parts[1]
+
+        # Validate container name format
+        if not _validate_container_name(container_name):
+            logger.warning(f"Invalid container name in callback: {container_name[:50]}")
+            await callback.answer("Invalid container name")
+            return
 
         # Find container
         matches = state.find_by_name(container_name)
@@ -235,6 +269,12 @@ def mute_callback(
             return
 
         container_name = prefix_parts[1]
+
+        # Validate container name format
+        if not _validate_container_name(container_name):
+            logger.warning(f"Invalid container name in callback: {container_name[:50]}")
+            await callback.answer("Invalid container name")
+            return
 
         # Find container
         matches = state.find_by_name(container_name)

@@ -1,11 +1,12 @@
 # src/services/nl_processor.py
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from src.services.nl_tools import get_tool_definitions
 from src.utils.api_errors import handle_anthropic_error
+from src.utils.rate_limiter import PerUserRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +42,27 @@ class ConversationMemory:
 
 
 class MemoryStore:
-    """Stores conversation memories for all users."""
+    """Stores conversation memories for all users with TTL expiration."""
 
-    def __init__(self, max_exchanges: int = 5):
+    def __init__(
+        self,
+        max_exchanges: int = 5,
+        memory_ttl_minutes: int = 30,
+        max_users: int = 100,
+    ):
         self._memories: dict[int, ConversationMemory] = {}
         self._max_exchanges = max_exchanges
+        self._memory_ttl = timedelta(minutes=memory_ttl_minutes)
+        self._max_users = max_users
 
     def get_or_create(self, user_id: int) -> ConversationMemory:
         """Get existing memory or create new one for user."""
+        self._cleanup_expired()
+
         if user_id not in self._memories:
+            # Enforce max users limit by evicting oldest
+            if len(self._memories) >= self._max_users:
+                self._evict_oldest()
             self._memories[user_id] = ConversationMemory(
                 user_id=user_id,
                 max_exchanges=self._max_exchanges,
@@ -63,6 +76,26 @@ class MemoryStore:
     def clear_user(self, user_id: int) -> None:
         """Remove memory for a user."""
         self._memories.pop(user_id, None)
+
+    def _cleanup_expired(self) -> None:
+        """Remove memories that have exceeded TTL."""
+        now = datetime.now()
+        expired = [
+            uid for uid, mem in self._memories.items()
+            if now - mem.last_activity > self._memory_ttl
+        ]
+        for uid in expired:
+            del self._memories[uid]
+
+    def _evict_oldest(self) -> None:
+        """Remove the oldest memory to make room for new ones."""
+        if not self._memories:
+            return
+        oldest_uid = min(
+            self._memories.keys(),
+            key=lambda uid: self._memories[uid].last_activity
+        )
+        del self._memories[oldest_uid]
 
 
 SYSTEM_PROMPT = """You are an assistant for monitoring an Unraid server. You help users understand what's happening with their Docker containers and server, and can take actions to fix problems.
@@ -105,6 +138,8 @@ class NLProcessor:
         max_tokens: int = 1024,
         max_tool_iterations: int = 10,
         max_conversation_exchanges: int = 5,
+        rate_limit_per_minute: int = 10,
+        rate_limit_per_hour: int = 60,
     ):
         """Initialize the NLProcessor.
 
@@ -115,6 +150,8 @@ class NLProcessor:
             max_tokens: Maximum tokens for Claude API responses.
             max_tool_iterations: Maximum tool use loop iterations.
             max_conversation_exchanges: Maximum conversation exchanges to keep in memory.
+            rate_limit_per_minute: Max NL requests per user per minute.
+            rate_limit_per_hour: Max NL requests per user per hour.
         """
         self._anthropic = anthropic_client
         self._executor = tool_executor
@@ -122,6 +159,10 @@ class NLProcessor:
         self._max_tokens = max_tokens
         self._max_tool_iterations = max_tool_iterations
         self.memory_store = MemoryStore(max_exchanges=max_conversation_exchanges)
+        self._rate_limiter = PerUserRateLimiter(
+            max_per_minute=rate_limit_per_minute,
+            max_per_hour=rate_limit_per_hour,
+        )
 
     async def process(self, user_id: int, message: str) -> ProcessResult:
         """Process a natural language message and return a response.
@@ -136,6 +177,20 @@ class NLProcessor:
         if self._anthropic is None:
             return ProcessResult(
                 response="Sorry, natural language processing is not configured. Please use /commands instead."
+            )
+
+        # Check rate limit
+        if not self._rate_limiter.is_allowed(user_id):
+            retry_after = self._rate_limiter.get_retry_after(user_id)
+            return ProcessResult(
+                response=f"Rate limit reached. Please wait {retry_after} seconds before sending another message."
+            )
+
+        # Validate message length
+        max_message_length = 2000
+        if len(message) > max_message_length:
+            return ProcessResult(
+                response=f"Message too long ({len(message)} chars). Maximum is {max_message_length}."
             )
 
         memory = self.memory_store.get_or_create(user_id)

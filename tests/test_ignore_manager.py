@@ -123,7 +123,7 @@ class TestIgnorePatternFormat:
             explanation="Connection refused errors to any host",
         )
 
-        assert result is True
+        assert result == (True, "Pattern added")
         ignores = manager.get_all_ignores("sonarr")
         assert len(ignores) == 1
         pattern, source, explanation = ignores[0]
@@ -183,8 +183,8 @@ class TestIgnorePatternFormat:
             explanation="Duplicate add",
         )
 
-        assert result1 is True
-        assert result2 is False
+        assert result1 == (True, "Pattern added")
+        assert result2 == (False, "Pattern already exists")
 
     def test_old_add_ignore_still_works(self, tmp_path):
         """Test that the old add_ignore method still works for backward compatibility."""

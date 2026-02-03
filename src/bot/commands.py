@@ -5,6 +5,7 @@ import docker
 
 from src.models import ContainerInfo
 from src.state import ContainerStateManager
+from src.utils.sanitize import sanitize_logs_for_display
 
 
 HELP_TEXT = """📋 *Commands*
@@ -174,12 +175,15 @@ def logs_command(
                 log_text = log_text[-max_chars:]
                 log_text = "...(truncated)\n" + log_text
 
+            # Sanitize to remove sensitive data before display
+            log_text = sanitize_logs_for_display(log_text)
+
             response = f"📋 *Logs: {container.name}* (last {lines} lines)\n\n```\n{log_text}\n```"
             await message.answer(response, parse_mode="Markdown")
 
         except docker.errors.NotFound:
             await message.answer(f"❌ Container '{container.name}' not found in Docker")
         except Exception as e:
-            await message.answer(f"❌ Error getting logs: {e}")
+            await message.answer(f"❌ Error getting logs. Check bot logs for details.")
 
     return handler

@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -104,7 +106,7 @@ class BaseMuteManager:
             self._mutes = {}
 
     def _save(self) -> None:
-        """Save mutes to JSON file."""
+        """Save mutes to JSON file using atomic write pattern."""
         self._json_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -112,7 +114,23 @@ class BaseMuteManager:
                 key: exp.isoformat()
                 for key, exp in self._mutes.items()
             }
-            with open(self._json_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+
+            # Atomic write: write to temp file, then rename
+            fd, temp_path = tempfile.mkstemp(
+                dir=self._json_path.parent,
+                prefix=".tmp_mutes_",
+                suffix=".json",
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(temp_path, self._json_path)  # Atomic on POSIX
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
         except IOError as e:
             logger.error(f"Failed to save mutes to {self._json_path}: {e}")
