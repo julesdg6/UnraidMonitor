@@ -3,12 +3,13 @@ services:
     build:
       context: .
       args:
-        # Match the docker group GID on the host
-        DOCKER_GID: ${DOCKER_GID:-999}
+        # Set DOCKER_GID to match docker.sock ownership on host
+        # Find with: ls -ln /var/run/docker.sock (look at group number)
+        DOCKER_GID: ${DOCKER_GID:-0}
     container_name: unraid-monitor-bot
     restart: unless-stopped
-    # Runs as appuser (UID 1000) in docker group - no root needed
-    # Set DOCKER_GID to match your host's docker group: getent group docker | cut -d: -f3
+    # If DOCKER_GID doesn't work, uncomment this to run as root:
+    # user: root
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
