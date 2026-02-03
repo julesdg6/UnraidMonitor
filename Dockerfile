@@ -14,7 +14,7 @@ COPY config/ ./config/
 # For Docker socket access, either:
 #   1. Set DOCKER_GID to match host's docker.sock group (ls -la /var/run/docker.sock)
 #   2. Or use "user: root" in docker-compose.yml
-ARG DOCKER_GID=0
+ARG DOCKER_GID=281
 RUN useradd -m appuser && \
     chown -R appuser:appuser /app && \
     if [ "$DOCKER_GID" != "0" ]; then \
