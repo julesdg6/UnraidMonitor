@@ -12,7 +12,7 @@ COPY config/ ./config/
 
 # Create user with docker group access
 # The docker group GID on the host may vary, so we pass it at build time
-ARG DOCKER_GID=100
+ARG DOCKER_GID=281
 RUN groupadd -g ${DOCKER_GID} docker || true && \
     useradd -m -G docker appuser && \
     chown -R appuser:appuser /app
