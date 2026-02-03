@@ -263,7 +263,7 @@ def load_yaml_config(path: str) -> dict[str, Any]:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file="config/.env", env_file_encoding="utf-8")
 
     telegram_bot_token: str
     telegram_allowed_users: list[int] | str  # Accept string, convert to list
