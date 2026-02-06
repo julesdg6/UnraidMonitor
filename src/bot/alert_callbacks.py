@@ -5,7 +5,6 @@ import re
 from datetime import timedelta
 from typing import Callable, Awaitable, Any
 
-from aiogram import Bot
 from aiogram.types import CallbackQuery
 from aiogram.exceptions import TelegramBadRequest
 import docker

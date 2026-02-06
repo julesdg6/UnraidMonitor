@@ -30,8 +30,6 @@ async def send_with_retry(
     Returns:
         The result of the function call, or None if all retries failed.
     """
-    last_error: Exception | None = None
-
     for attempt in range(max_retries + 1):
         try:
             return await coro_func(*args, **kwargs)
@@ -43,7 +41,6 @@ async def send_with_retry(
                     f"(attempt {attempt + 1}/{max_retries + 1})"
                 )
                 await asyncio.sleep(retry_after)
-                last_error = e
             else:
                 logger.error(
                     f"Telegram rate limit exceeded, max retries reached: {e}"
@@ -69,8 +66,6 @@ def with_telegram_retry(max_retries: int = 3):
     def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T | None]]:
         @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T | None:
-            last_error: Exception | None = None
-
             for attempt in range(max_retries + 1):
                 try:
                     return await func(*args, **kwargs)
@@ -83,7 +78,6 @@ def with_telegram_retry(max_retries: int = 3):
                             f"(attempt {attempt + 1}/{max_retries + 1})"
                         )
                         await asyncio.sleep(retry_after)
-                        last_error = e
                     else:
                         logger.error(
                             f"Telegram rate limit in {func.__name__}, "

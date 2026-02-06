@@ -212,13 +212,11 @@ class UnraidConfig:
     verify_ssl: bool = True
     poll_system_seconds: int = 30
     poll_array_seconds: int = 300
-    poll_ups_seconds: int = 60
     cpu_temp_threshold: int = 80
     cpu_usage_threshold: int = 95
     memory_usage_threshold: int = 90
     disk_temp_threshold: int = 50
     array_usage_threshold: int = 85
-    ups_battery_threshold: int = 30
 
     @classmethod
     def from_dict(cls, data: dict) -> "UnraidConfig":
@@ -233,13 +231,11 @@ class UnraidConfig:
             verify_ssl=data.get("verify_ssl", True),
             poll_system_seconds=polling.get("system", 30),
             poll_array_seconds=polling.get("array", 300),
-            poll_ups_seconds=polling.get("ups", 60),
             cpu_temp_threshold=thresholds.get("cpu_temp", 80),
             cpu_usage_threshold=thresholds.get("cpu_usage", 95),
             memory_usage_threshold=thresholds.get("memory_usage", 90),
             disk_temp_threshold=thresholds.get("disk_temp", 50),
             array_usage_threshold=thresholds.get("array_usage", 85),
-            ups_battery_threshold=thresholds.get("ups_battery", 30),
         )
 
 
@@ -307,11 +303,6 @@ class AppConfig:
         """
         self._settings = settings
         self._yaml_config = load_yaml_config(settings.config_path)
-
-    @property
-    def settings(self) -> Settings:
-        """Get the underlying Settings object."""
-        return self._settings
 
     @property
     def ignored_containers(self) -> list[str]:
@@ -477,14 +468,12 @@ unraid:
   polling:
     system: 30
     array: 300
-    ups: 60
   thresholds:
     cpu_temp: 80
     cpu_usage: 95
     memory_usage: 90
     disk_temp: 50
     array_usage: 85
-    ups_battery: 30
 '''
 
 

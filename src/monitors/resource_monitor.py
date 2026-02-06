@@ -90,9 +90,9 @@ def parse_container_stats(name: str, stats: dict) -> ContainerStats:
     memory_usage = memory_stats.get("usage", 0)
     memory_limit = memory_stats.get("limit", 1)  # Avoid division by zero
 
-    # Subtract cache from memory usage if available
+    # Subtract cache from memory usage if available (clamp to 0)
     cache = memory_stats.get("stats", {}).get("cache", 0)
-    memory_usage = memory_usage - cache
+    memory_usage = max(0, memory_usage - cache)
 
     memory_percent = (memory_usage / memory_limit) * 100.0 if memory_limit > 0 else 0.0
 
@@ -366,6 +366,7 @@ class ResourceMonitor:
     async def _poll_cycle(self) -> None:
         """Execute one polling cycle."""
         stats_list = await self.get_all_stats()
+        active_names = {s.name for s in stats_list}
 
         for stats in stats_list:
             self._check_thresholds(stats)
@@ -374,3 +375,8 @@ class ResourceMonitor:
             sustained = self._get_sustained_violations(stats.name)
             for violation in sustained:
                 await self._send_alert(stats, violation)
+
+        # Remove violations for containers that no longer exist
+        stale = [name for name in self._violations if name not in active_names]
+        for name in stale:
+            del self._violations[name]

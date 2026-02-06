@@ -47,40 +47,6 @@ ARRAY_STATUS_QUERY = """
     }
 """
 
-VMS_QUERY = """
-    query {
-        vms {
-            domains {
-                id
-                name
-                state
-            }
-        }
-    }
-"""
-
-UPS_QUERY = """
-    query {
-        upsDevices {
-            id
-            name
-            model
-            status
-            battery {
-                chargeLevel
-                estimatedRuntime
-                health
-            }
-            power {
-                inputVoltage
-                outputVoltage
-                loadPercentage
-            }
-        }
-    }
-"""
-
-
 class UnraidConnectionError(Exception):
     """Raised when Unraid client is not connected."""
 
@@ -230,7 +196,6 @@ class UnraidClientWrapper:
         metrics = data.get("metrics", {})
 
         uptime = info.get("os", {}).get("uptime", "")
-        hostname = info.get("os", {}).get("hostname", "")
 
         cpu_metrics = metrics.get("cpu", {})
         cpu_percent = cpu_metrics.get("percentTotal", 0)
@@ -258,21 +223,3 @@ class UnraidClientWrapper:
         data = await self._execute_query(ARRAY_STATUS_QUERY)
         return data.get("array", {})
 
-    async def get_vms(self) -> list[dict[str, Any]]:
-        """Get list of virtual machines.
-
-        Returns:
-            List of VM dicts with name, id, state.
-        """
-        data = await self._execute_query(VMS_QUERY)
-        vms = data.get("vms", {})
-        return vms.get("domains", [])
-
-    async def get_ups_status(self) -> list[dict[str, Any]]:
-        """Get UPS status.
-
-        Returns:
-            List of UPS device dicts.
-        """
-        data = await self._execute_query(UPS_QUERY)
-        return data.get("upsDevices", [])

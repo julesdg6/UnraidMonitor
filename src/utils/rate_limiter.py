@@ -36,13 +36,17 @@ class PerUserRateLimiter:
         minute_ago = now - timedelta(minutes=1)
         hour_ago = now - timedelta(hours=1)
 
-        # Clean old entries
+        # Clean old entries for current user
         self._minute_timestamps[user_id] = [
             t for t in self._minute_timestamps[user_id] if t > minute_ago
         ]
         self._hour_timestamps[user_id] = [
             t for t in self._hour_timestamps[user_id] if t > hour_ago
         ]
+
+        # Periodically clean empty entries from inactive users
+        if len(self._minute_timestamps) > 100:
+            self._cleanup_empty()
 
         # Check limits
         if len(self._minute_timestamps[user_id]) >= self._max_per_minute:
@@ -78,3 +82,12 @@ class PerUserRateLimiter:
             return max(0, int((wait_until - now).total_seconds()))
 
         return 0
+
+    def _cleanup_empty(self) -> None:
+        """Remove entries for users with no recent activity."""
+        empty_minute = [uid for uid, ts in self._minute_timestamps.items() if not ts]
+        for uid in empty_minute:
+            del self._minute_timestamps[uid]
+        empty_hour = [uid for uid, ts in self._hour_timestamps.items() if not ts]
+        for uid in empty_hour:
+            del self._hour_timestamps[uid]

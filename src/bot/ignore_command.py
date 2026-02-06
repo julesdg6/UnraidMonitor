@@ -1,9 +1,10 @@
-import re
 import logging
 import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery
+
+from src.utils.formatting import extract_container_from_alert
 
 if TYPE_CHECKING:
     from src.alerts.recent_errors import RecentErrorsBuffer
@@ -12,17 +13,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Pattern to extract container name from error alert
-ALERT_PATTERN = re.compile(r"ERRORS IN[:\s]+(\w+)", re.IGNORECASE)
-
 # TTL for pending selections (10 minutes)
 _SELECTION_TTL = 600
-
-
-def extract_container_from_alert(text: str) -> str | None:
-    """Extract container name from error alert message."""
-    match = ALERT_PATTERN.search(text)
-    return match.group(1) if match else None
 
 
 class IgnoreSelectionState:

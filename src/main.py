@@ -46,6 +46,15 @@ class AlertManagerProxy:
         self.chat_id_store = chat_id_store
         self.error_display_max_chars = error_display_max_chars
         self._queued_alerts: list[tuple[str, dict]] = []
+        self._cached_manager: AlertManager | None = None
+        self._cached_chat_id: int | None = None
+
+    def _get_manager(self, chat_id: int) -> AlertManager:
+        """Get or create a cached AlertManager for the given chat_id."""
+        if self._cached_manager is None or self._cached_chat_id != chat_id:
+            self._cached_manager = AlertManager(self.bot, chat_id, error_display_max_chars=self.error_display_max_chars)
+            self._cached_chat_id = chat_id
+        return self._cached_manager
 
     async def _send_alert(self, method_name: str, **kwargs):
         """Generic alert sender that delegates to AlertManager."""
@@ -54,7 +63,7 @@ class AlertManagerProxy:
             # Flush any queued alerts first
             if self._queued_alerts:
                 await self._flush_queue(chat_id)
-            manager = AlertManager(self.bot, chat_id, error_display_max_chars=self.error_display_max_chars)
+            manager = self._get_manager(chat_id)
             await getattr(manager, method_name)(**kwargs)
         else:
             if len(self._queued_alerts) < self.MAX_QUEUED:
@@ -68,7 +77,7 @@ class AlertManagerProxy:
         queued = self._queued_alerts[:]
         self._queued_alerts.clear()
         logger.info(f"Flushing {len(queued)} queued alerts")
-        manager = AlertManager(self.bot, chat_id, error_display_max_chars=self.error_display_max_chars)
+        manager = self._get_manager(chat_id)
         for method_name, kwargs in queued:
             try:
                 await getattr(manager, method_name)(**kwargs)

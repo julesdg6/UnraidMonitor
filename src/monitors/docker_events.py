@@ -227,9 +227,10 @@ class DockerEventMonitor:
             logger.error(f"Docker API error: {e}")
             raise
         except Exception as e:
-            # Re-raise to trigger reconnection in start()
             if self._running:
+                # Re-raise to trigger reconnection in start()
                 raise
+            logger.debug(f"Suppressed exception during shutdown: {e}")
 
     def _handle_event(self, event: dict[str, Any]) -> None:
         """Handle a Docker event."""

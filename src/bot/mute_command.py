@@ -1,4 +1,3 @@
-import re
 import logging
 from typing import Callable, Awaitable, TYPE_CHECKING
 from datetime import timedelta
@@ -6,6 +5,7 @@ from datetime import timedelta
 from aiogram.types import Message
 
 from src.alerts.mute_manager import parse_duration
+from src.utils.formatting import extract_container_from_alert
 
 if TYPE_CHECKING:
     from src.alerts.mute_manager import MuteManager
@@ -14,23 +14,6 @@ if TYPE_CHECKING:
     from src.state import ContainerStateManager
 
 logger = logging.getLogger(__name__)
-
-# Pattern to extract container name from various alert types
-ALERT_PATTERNS = [
-    re.compile(r"ERRORS IN[:\s]+(\w+)", re.IGNORECASE),
-    re.compile(r"CRASHED[:\s]+(\w+)", re.IGNORECASE),
-    re.compile(r"HIGH .+ USAGE[:\s]+(\w+)", re.IGNORECASE),
-    re.compile(r"Container[:\s]+(\w+)", re.IGNORECASE),
-]
-
-
-def extract_container_from_alert(text: str) -> str | None:
-    """Extract container name from any alert type."""
-    for pattern in ALERT_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            return match.group(1)
-    return None
 
 
 def mute_command(

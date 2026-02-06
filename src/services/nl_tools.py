@@ -174,49 +174,6 @@ def get_tool_definitions() -> list[dict[str, Any]]:
     ]
 
 
-# Tool categories for use in executor
-READ_ONLY_TOOLS = {
-    "get_container_list",
-    "get_container_status",
-    "get_container_logs",
-    "get_resource_usage",
-    "get_server_stats",
-    "get_array_status",
-    "get_recent_errors",
-}
-
-ACTION_TOOLS = {
-    "restart_container",
-    "stop_container",
-    "start_container",
-    "pull_container",
-}
-
-
-def is_action_tool(tool_name: str) -> bool:
-    """Check if a tool requires confirmation before execution.
-
-    Args:
-        tool_name: Name of the tool to check.
-
-    Returns:
-        True if the tool modifies state and needs confirmation.
-    """
-    return tool_name in ACTION_TOOLS
-
-
-def is_read_only_tool(tool_name: str) -> bool:
-    """Check if a tool is read-only (no confirmation needed).
-
-    Args:
-        tool_name: Name of the tool to check.
-
-    Returns:
-        True if the tool only reads data.
-    """
-    return tool_name in READ_ONLY_TOOLS
-
-
 class NLToolExecutor:
     """Executes NL tools using existing service code."""
 
@@ -336,10 +293,7 @@ class NLToolExecutor:
             logs = log_bytes.decode("utf-8", errors="replace")
             if not logs.strip():
                 return f"No recent logs for {resolved.name}"
-            if len(logs) > self._log_max_chars:
-                logs = logs[-self._log_max_chars:]
-                logs = f"... (truncated)\n{logs}"
-            # Sanitize logs to prevent prompt injection via tool results
+            # Sanitize logs (also truncates to max_length) to prevent prompt injection
             safe_logs = sanitize_logs(logs, max_length=self._log_max_chars)
             return f"Logs for {resolved.name}:\n{safe_logs}"
         except docker.errors.NotFound:

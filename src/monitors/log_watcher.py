@@ -15,18 +15,29 @@ def matches_error_pattern(
     line: str,
     error_patterns: list[str],
     ignore_patterns: list[str],
+    *,
+    _cache: dict[int, tuple[list[str], list[str]]] = {},
 ) -> bool:
     """Check if a log line matches any error pattern and no ignore pattern."""
     line_lower = line.lower()
 
+    # Cache lowercased patterns (keyed by id of the original lists)
+    cache_key = id(error_patterns) ^ id(ignore_patterns)
+    if cache_key not in _cache:
+        _cache[cache_key] = (
+            [p.lower() for p in error_patterns],
+            [p.lower() for p in ignore_patterns],
+        )
+    error_lower, ignore_lower = _cache[cache_key]
+
     # Check ignore patterns first
-    for pattern in ignore_patterns:
-        if pattern.lower() in line_lower:
+    for pattern in ignore_lower:
+        if pattern in line_lower:
             return False
 
     # Check error patterns
-    for pattern in error_patterns:
-        if pattern.lower() in line_lower:
+    for pattern in error_lower:
+        if pattern in line_lower:
             return True
 
     return False

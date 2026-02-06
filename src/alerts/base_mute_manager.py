@@ -32,6 +32,8 @@ class BaseMuteManager:
         """Check if a key is currently muted.
 
         Returns False if mute has expired, cleaning up the expired entry.
+        Expired entries are removed from memory but file save is deferred
+        to avoid disk I/O on every check.
         """
         if key not in self._mutes:
             return False
@@ -39,7 +41,6 @@ class BaseMuteManager:
         expiry = self._mutes[key]
         if datetime.now() >= expiry:
             del self._mutes[key]
-            self._save()
             return False
 
         return True

@@ -16,4 +16,4 @@ class ContainerInfo:
         if self.started_at is None:
             return None
         elapsed = datetime.now(self.started_at.tzinfo) - self.started_at
-        return int(elapsed.total_seconds())
+        return max(0, int(elapsed.total_seconds()))

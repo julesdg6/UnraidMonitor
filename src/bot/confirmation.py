@@ -56,9 +56,3 @@ class ConfirmationManager:
             del self._pending[user_id]
         return pending
 
-    def cancel(self, user_id: int) -> bool:
-        """Cancel pending confirmation for user."""
-        if user_id in self._pending:
-            del self._pending[user_id]
-            return True
-        return False

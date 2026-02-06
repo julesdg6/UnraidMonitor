@@ -163,6 +163,7 @@ class NLProcessor:
             max_per_minute=rate_limit_per_minute,
             max_per_hour=rate_limit_per_hour,
         )
+        self._cached_tools: list[dict[str, Any]] | None = None
 
     async def process(self, user_id: int, message: str) -> ProcessResult:
         """Process a natural language message and return a response.
@@ -221,6 +222,12 @@ class NLProcessor:
                 response=f"Sorry, {error_result.user_message.lower()} Try using /commands instead."
             )
 
+    def _get_cached_tools(self) -> list[dict[str, Any]]:
+        """Return cached tool definitions (built once)."""
+        if self._cached_tools is None:
+            self._cached_tools = get_tool_definitions()
+        return self._cached_tools
+
     async def _call_claude(self, messages: list[dict[str, Any]]) -> tuple[str, dict[str, Any] | None]:
         """Call Claude API with tool support.
 
@@ -231,7 +238,7 @@ class NLProcessor:
             Tuple of (response_text, pending_action).
         """
         assert self._anthropic is not None  # Caller ensures this via process() check
-        tools = get_tool_definitions()
+        tools = self._get_cached_tools()
         pending_action = None
 
         # Initial API call

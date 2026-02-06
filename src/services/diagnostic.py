@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import docker
 
 from src.utils.api_errors import handle_anthropic_error
+from src.utils.formatting import format_uptime
 from src.utils.sanitize import sanitize_container_name, sanitize_logs
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ class DiagnosticService:
         if not self._anthropic:
             return "❌ Anthropic API not configured. Set ANTHROPIC_API_KEY in .env"
 
-        uptime_str = self._format_uptime(context.uptime_seconds) if context.uptime_seconds else "unknown"
+        uptime_str = format_uptime(context.uptime_seconds) if context.uptime_seconds else "unknown"
 
         # Sanitize user-controlled inputs to prevent prompt injection
         safe_name = sanitize_container_name(context.container_name)
@@ -166,14 +167,6 @@ Respond with 2-3 sentences: What happened, the likely cause, and how to fix it. 
             error_result = handle_anthropic_error(e)
             logger.log(error_result.log_level, f"Claude API error in analyze: {e}")
             return f"❌ {error_result.user_message}"
-
-    def _format_uptime(self, seconds: int) -> str:
-        """Format uptime in human-readable form."""
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        return f"{minutes}m"
 
     def store_context(self, user_id: int, context: DiagnosticContext) -> None:
         """Store diagnostic context for potential follow-up.

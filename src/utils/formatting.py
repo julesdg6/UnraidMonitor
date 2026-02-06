@@ -1,5 +1,31 @@
 """Shared formatting utility functions."""
 
+import re
+
+# Patterns to extract container name from various alert types
+_ALERT_PATTERNS = [
+    re.compile(r"ERRORS IN[:\s]+(\w+)", re.IGNORECASE),
+    re.compile(r"CRASHED[:\s]+(\w+)", re.IGNORECASE),
+    re.compile(r"HIGH .+ USAGE[:\s]+(\w+)", re.IGNORECASE),
+    re.compile(r"Container[:\s]+(\w+)", re.IGNORECASE),
+]
+
+
+def extract_container_from_alert(text: str) -> str | None:
+    """Extract container name from any alert type message.
+
+    Args:
+        text: Alert message text.
+
+    Returns:
+        Container name if found, None otherwise.
+    """
+    for pattern in _ALERT_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return match.group(1)
+    return None
+
 
 def format_bytes(bytes_val: int) -> str:
     """Format bytes as human-readable string.

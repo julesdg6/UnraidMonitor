@@ -1,9 +1,9 @@
 import logging
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.exceptions import TelegramRetryAfter, TelegramAPIError
 
-from src.utils.formatting import format_bytes
+
+from src.utils.formatting import format_bytes, format_uptime
 from src.utils.telegram_retry import send_with_retry
 
 logger = logging.getLogger(__name__)
@@ -22,16 +22,6 @@ class ChatIdStore:
     def get_chat_id(self) -> int | None:
         """Get the stored chat ID."""
         return self._chat_id
-
-
-def format_uptime(seconds: int) -> str:
-    """Format uptime in human-readable form."""
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    return f"{minutes}m"
 
 
 class AlertManager:
@@ -91,10 +81,6 @@ Uptime: {uptime_str}"""
                 reply_markup=keyboard,
             )
             logger.info(f"Sent crash alert for {container_name}")
-        except TelegramRetryAfter as e:
-            logger.error(f"Failed to send crash alert (rate limited): {e}")
-        except TelegramAPIError as e:
-            logger.error(f"Failed to send crash alert: {e}")
         except Exception as e:
             logger.error(f"Failed to send crash alert: {e}")
 
@@ -156,10 +142,6 @@ Latest: `{display_error}`
                 reply_markup=keyboard,
             )
             logger.info(f"Sent log error alert for {container_name}")
-        except TelegramRetryAfter as e:
-            logger.error(f"Failed to send log error alert (rate limited): {e}")
-        except TelegramAPIError as e:
-            logger.error(f"Failed to send log error alert: {e}")
         except Exception as e:
             logger.error(f"Failed to send log error alert: {e}")
 
@@ -232,10 +214,6 @@ Exceeded for: {duration_str}
                 reply_markup=keyboard,
             )
             logger.info(f"Sent resource alert for {container_name} ({metric})")
-        except TelegramRetryAfter as e:
-            logger.error(f"Failed to send resource alert (rate limited): {e}")
-        except TelegramAPIError as e:
-            logger.error(f"Failed to send resource alert: {e}")
         except Exception as e:
             logger.error(f"Failed to send resource alert: {e}")
 

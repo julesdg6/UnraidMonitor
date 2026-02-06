@@ -73,8 +73,8 @@ async def test_alert_manager_formats_uptime():
 
     assert format_uptime(3661) == "1h 1m"
     assert format_uptime(120) == "2m"
-    assert format_uptime(3600) == "1h 0m"
-    assert format_uptime(86400) == "24h 0m"
+    assert format_uptime(3600) == "1h"
+    assert format_uptime(86400) == "1d"
     assert format_uptime(45) == "0m"
 
 

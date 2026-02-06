@@ -5,10 +5,6 @@ from datetime import datetime, timezone
 
 from src.services.nl_tools import (
     get_tool_definitions,
-    is_action_tool,
-    is_read_only_tool,
-    READ_ONLY_TOOLS,
-    ACTION_TOOLS,
     NLToolExecutor,
 )
 from src.models import ContainerInfo
@@ -123,53 +119,6 @@ class TestToolDefinitions:
             properties = tool["input_schema"].get("properties", {})
             for prop_name, prop_def in properties.items():
                 assert "type" in prop_def, f"{tool['name']}.{prop_name} needs a type"
-
-
-class TestToolCategories:
-    def test_is_action_tool_returns_true_for_actions(self):
-        """Test that action tools are correctly identified."""
-        assert is_action_tool("restart_container") is True
-        assert is_action_tool("stop_container") is True
-        assert is_action_tool("start_container") is True
-        assert is_action_tool("pull_container") is True
-
-    def test_is_action_tool_returns_false_for_read_only(self):
-        """Test that read-only tools are not identified as actions."""
-        assert is_action_tool("get_container_list") is False
-        assert is_action_tool("get_container_status") is False
-        assert is_action_tool("get_container_logs") is False
-
-    def test_is_read_only_tool_returns_true_for_read_only(self):
-        """Test that read-only tools are correctly identified."""
-        assert is_read_only_tool("get_container_list") is True
-        assert is_read_only_tool("get_container_status") is True
-        assert is_read_only_tool("get_container_logs") is True
-        assert is_read_only_tool("get_resource_usage") is True
-        assert is_read_only_tool("get_server_stats") is True
-        assert is_read_only_tool("get_array_status") is True
-        assert is_read_only_tool("get_recent_errors") is True
-
-    def test_is_read_only_tool_returns_false_for_actions(self):
-        """Test that action tools are not identified as read-only."""
-        assert is_read_only_tool("restart_container") is False
-        assert is_read_only_tool("stop_container") is False
-
-    def test_unknown_tool_returns_false(self):
-        """Test that unknown tools return False for both checks."""
-        assert is_action_tool("unknown_tool") is False
-        assert is_read_only_tool("unknown_tool") is False
-
-    def test_all_tools_are_categorized(self):
-        """Test that every tool in definitions is in exactly one category."""
-        tools = get_tool_definitions()
-        tool_names = {t["name"] for t in tools}
-
-        # All tools should be in exactly one category
-        all_categorized = READ_ONLY_TOOLS | ACTION_TOOLS
-        assert tool_names == all_categorized, "All tools should be categorized"
-
-        # No overlap between categories
-        assert READ_ONLY_TOOLS & ACTION_TOOLS == set(), "Categories should not overlap"
 
 
 # Fixtures for NLToolExecutor tests
@@ -287,13 +236,14 @@ class TestNLToolExecutor:
 
     @pytest.mark.asyncio
     async def test_get_container_logs_truncates_long_output(self, executor, mock_docker):
-        """Test that long logs are truncated."""
-        # Create a log that exceeds 3000 characters
-        long_log = b"A" * 4000
+        """Test that long logs are truncated by sanitize_logs."""
+        # Create multi-line log that exceeds 3000 characters total
+        long_log = (b"line: " + b"A" * 100 + b"\n") * 50  # ~5350 bytes
         mock_docker.containers.get.return_value.logs.return_value = long_log
         result = await executor.execute(
             "get_container_logs", {"name": "plex", "lines": 100}
         )
+        assert len(result) < len(long_log.decode())
         assert "truncated" in result.lower()
 
     @pytest.mark.asyncio
