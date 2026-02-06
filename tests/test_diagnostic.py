@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 
 def test_diagnostic_context_creation():
@@ -23,7 +23,8 @@ def test_diagnostic_context_creation():
     assert "database" in context.brief_summary
 
 
-def test_diagnostic_service_gathers_context():
+@pytest.mark.asyncio
+async def test_diagnostic_service_gathers_context():
     """Test gathering container context from Docker."""
     from src.services.diagnostic import DiagnosticService
 
@@ -44,7 +45,7 @@ def test_diagnostic_service_gathers_context():
 
     service = DiagnosticService(docker_client=mock_client, anthropic_client=None)
 
-    context = service.gather_context("overseerr", lines=50)
+    context = await service.gather_context("overseerr", lines=50)
 
     assert context.container_name == "overseerr"
     assert context.exit_code == 1
@@ -53,7 +54,8 @@ def test_diagnostic_service_gathers_context():
     assert context.image == "linuxserver/overseerr:latest"
 
 
-def test_diagnostic_service_handles_missing_container():
+@pytest.mark.asyncio
+async def test_diagnostic_service_handles_missing_container():
     """Test handling container not found."""
     import docker
     from src.services.diagnostic import DiagnosticService
@@ -63,7 +65,7 @@ def test_diagnostic_service_handles_missing_container():
 
     service = DiagnosticService(docker_client=mock_client, anthropic_client=None)
 
-    context = service.gather_context("nonexistent", lines=50)
+    context = await service.gather_context("nonexistent", lines=50)
 
     assert context is None
 
@@ -80,7 +82,7 @@ async def test_diagnostic_service_analyzes_with_claude():
     mock_anthropic = MagicMock()
     mock_message = MagicMock()
     mock_message.content = [MagicMock(text="The container crashed due to OOM. Increase memory limits.")]
-    mock_anthropic.messages.create = MagicMock(return_value=mock_message)
+    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
 
     service = DiagnosticService(docker_client=mock_client, anthropic_client=mock_anthropic)
 
@@ -108,7 +110,7 @@ async def test_diagnostic_service_stores_and_retrieves_context():
     mock_anthropic = MagicMock()
     mock_message = MagicMock()
     mock_message.content = [MagicMock(text="Detailed analysis: The root cause is...")]
-    mock_anthropic.messages.create = MagicMock(return_value=mock_message)
+    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
 
     service = DiagnosticService(docker_client=mock_client, anthropic_client=mock_anthropic)
 

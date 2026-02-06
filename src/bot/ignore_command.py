@@ -257,11 +257,12 @@ def ignore_similar_callback(
                     explanation=result["explanation"],
                 )
                 if success:
-                    await callback.message.answer(
-                        f"✅ Ignoring: {result['explanation']}\n"
-                        f"Pattern: `{result['pattern']}`",
-                        parse_mode="Markdown",
-                    )
+                    if callback.message:
+                        await callback.message.answer(
+                            f"✅ Ignoring: {result['explanation']}\n"
+                            f"Pattern: `{result['pattern']}`",
+                            parse_mode="Markdown",
+                        )
                     await callback.answer("Pattern added")
                 else:
                     await callback.answer(f"Failed: {msg}")
@@ -270,10 +271,11 @@ def ignore_similar_callback(
         # Fallback to substring
         ignore_manager.add_ignore(container, full_error)
         display = full_error[:60] + "..." if len(full_error) > 60 else full_error
-        await callback.message.answer(
-            f"✅ Ignoring: `{display}`",
-            parse_mode="Markdown",
-        )
+        if callback.message:
+            await callback.message.answer(
+                f"✅ Ignoring: `{display}`",
+                parse_mode="Markdown",
+            )
         await callback.answer("Added to ignore list")
 
     return handler

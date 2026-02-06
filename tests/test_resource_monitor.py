@@ -392,26 +392,22 @@ async def test_resource_monitor_get_all_stats():
 
 
 @pytest.mark.asyncio
-async def test_resource_monitor_get_all_stats_skips_stopped():
-    """Test get_all_stats only includes running containers."""
+async def test_resource_monitor_get_all_stats_filters_running():
+    """Test get_all_stats requests only running containers from Docker."""
     from src.monitors.resource_monitor import ResourceMonitor
     from src.config import ResourceConfig
 
     mock_docker = MagicMock()
     mock_running = MagicMock()
     mock_running.name = "plex"
-    mock_running.status = "running"
     mock_running.stats.return_value = {
         "cpu_stats": {"cpu_usage": {"total_usage": 0}, "system_cpu_usage": 0, "online_cpus": 1},
         "precpu_stats": {"cpu_usage": {"total_usage": 0}, "system_cpu_usage": 0},
         "memory_stats": {"usage": 0, "limit": 1},
     }
 
-    mock_stopped = MagicMock()
-    mock_stopped.name = "stopped"
-    mock_stopped.status = "exited"
-
-    mock_docker.containers.list.return_value = [mock_running, mock_stopped]
+    # Docker API returns only running containers when filtered
+    mock_docker.containers.list.return_value = [mock_running]
 
     monitor = ResourceMonitor(
         docker_client=mock_docker,
@@ -424,7 +420,7 @@ async def test_resource_monitor_get_all_stats_skips_stopped():
 
     assert len(stats) == 1
     assert stats[0].name == "plex"
-    mock_stopped.stats.assert_not_called()
+    mock_docker.containers.list.assert_called_once_with(filters={"status": "running"})
 
 
 @pytest.mark.asyncio

@@ -35,6 +35,8 @@ def diagnose_command(
     """Factory for /diagnose command handler."""
 
     async def handler(message: Message) -> None:
+        if not message.from_user:
+            return
         text = message.text or ""
         parts = text.strip().split()
         user_id = message.from_user.id
@@ -86,7 +88,7 @@ def diagnose_command(
         await message.answer(f"Analyzing {actual_name}...")
 
         # Gather context
-        context = diagnostic_service.gather_context(actual_name, lines=lines)
+        context = await diagnostic_service.gather_context(actual_name, lines=lines)
         if not context:
             await message.answer(f"Could not get container info for '{actual_name}'")
             return

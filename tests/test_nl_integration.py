@@ -86,7 +86,7 @@ class TestNLIntegration:
         text_block = Mock(type="text", text="Plex is running and healthy.")
         response2 = Mock(stop_reason="end_turn", content=[text_block])
 
-        mock_anthropic.messages.create = Mock(side_effect=[response1, response2])
+        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2])
 
         processor = NLProcessor(
             anthropic_client=mock_anthropic,
@@ -104,7 +104,7 @@ class TestNLIntegration:
 
         # Simple text responses for simplicity
         text_response = Mock(stop_reason="end_turn", content=[Mock(type="text", text="OK")])
-        mock_anthropic.messages.create = Mock(return_value=text_response)
+        mock_anthropic.messages.create = AsyncMock(return_value=text_response)
 
         processor = NLProcessor(
             anthropic_client=mock_anthropic,
@@ -166,7 +166,7 @@ class TestNLIntegration:
         text_block = Mock(type="text", text="Plex is running. Logs show a connection timeout error.")
         response3 = Mock(stop_reason="end_turn", content=[text_block])
 
-        mock_anthropic.messages.create = Mock(side_effect=[response1, response2, response3])
+        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2, response3])
 
         processor = NLProcessor(
             anthropic_client=mock_anthropic,
@@ -192,7 +192,7 @@ class TestNLIntegration:
         text_block = Mock(type="text", text="I can restart plex for you. Please confirm.")
         response2 = Mock(stop_reason="end_turn", content=[text_block])
 
-        mock_anthropic.messages.create = Mock(side_effect=[response1, response2])
+        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2])
 
         processor = NLProcessor(
             anthropic_client=mock_anthropic,
@@ -217,7 +217,7 @@ class TestNLIntegration:
         mock_anthropic = Mock()
 
         text_response = Mock(stop_reason="end_turn", content=[Mock(type="text", text="OK")])
-        mock_anthropic.messages.create = Mock(return_value=text_response)
+        mock_anthropic.messages.create = AsyncMock(return_value=text_response)
 
         processor = NLProcessor(
             anthropic_client=mock_anthropic,
@@ -244,7 +244,7 @@ class TestNLIntegration:
     async def test_error_handling_returns_fallback(self, executor):
         """Test that errors during processing return a fallback message."""
         mock_anthropic = Mock()
-        mock_anthropic.messages.create = Mock(side_effect=Exception("API error"))
+        mock_anthropic.messages.create = AsyncMock(side_effect=Exception("API error"))
 
         processor = NLProcessor(
             anthropic_client=mock_anthropic,
@@ -325,7 +325,7 @@ class TestNLIntegration:
         # Second: simple query (no confirmation)
         text_response2 = Mock(stop_reason="end_turn", content=[Mock(type="text", text="Everything is fine.")])
 
-        mock_anthropic.messages.create = Mock(side_effect=[response1, text_response1, text_response2])
+        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, text_response1, text_response2])
 
         processor = NLProcessor(
             anthropic_client=mock_anthropic,

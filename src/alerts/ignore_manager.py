@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -41,10 +42,30 @@ def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
             return False, "Pattern may cause performance issues (nested quantifiers)"
 
     try:
-        re.compile(pattern)
-        return True, ""
+        compiled = re.compile(pattern)
     except re.error as e:
         return False, str(e)
+
+    # Test against a pathological string to catch patterns that cause backtracking
+    import signal
+
+    test_string = "a" * 100
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError("Regex test timed out")
+
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    try:
+        signal.alarm(1)  # 1 second timeout
+        compiled.search(test_string)
+        signal.alarm(0)
+    except TimeoutError:
+        return False, "Pattern causes excessive backtracking"
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+    return True, ""
 
 
 @dataclass
@@ -91,6 +112,7 @@ class IgnoreManager:
         self._config_ignores = config_ignores
         self._json_path = Path(json_path)
         self._runtime_ignores: dict[str, list[IgnorePattern]] = {}
+        self._lock = asyncio.Lock()
         self._load_runtime_ignores()
 
     def is_ignored(self, container: str, message: str) -> bool:

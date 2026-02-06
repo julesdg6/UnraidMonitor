@@ -466,7 +466,7 @@ memory_management:
 # Unraid server monitoring
 unraid:
   enabled: false
-  host: "192.168.0.190"
+  host: "your-unraid-ip"
   port: 443
   use_ssl: true
   # WARNING: Set verify_ssl to true in production for security

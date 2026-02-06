@@ -1,5 +1,6 @@
 """AI-powered container diagnostics service."""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -75,7 +76,7 @@ class DiagnosticService:
         self._context_expiry_seconds = context_expiry_seconds
         self._pending: dict[int, DiagnosticContext] = {}
 
-    def gather_context(self, container_name: str, lines: int = 50) -> DiagnosticContext | None:
+    async def gather_context(self, container_name: str, lines: int = 50) -> DiagnosticContext | None:
         """Gather diagnostic context from a container.
 
         Args:
@@ -86,12 +87,12 @@ class DiagnosticService:
             DiagnosticContext with container info, or None if container not found.
         """
         try:
-            container = self._docker.containers.get(container_name)
+            container = await asyncio.to_thread(self._docker.containers.get, container_name)
         except docker.errors.NotFound:
             return None
 
         # Get logs
-        log_bytes = container.logs(tail=lines, timestamps=False)
+        log_bytes = await asyncio.to_thread(container.logs, tail=lines, timestamps=False)
         logs = log_bytes.decode("utf-8", errors="replace")
 
         # Get container state
@@ -155,7 +156,7 @@ Last log lines:
 Respond with 2-3 sentences: What happened, the likely cause, and how to fix it. Be specific and actionable. If you see a clear command to run, include it."""
 
         try:
-            message = self._anthropic.messages.create(
+            message = await self._anthropic.messages.create(
                 model=self._model,
                 max_tokens=self._brief_max_tokens,
                 messages=[{"role": "user", "content": prompt}],
@@ -245,7 +246,7 @@ Provide:
 Be specific and actionable."""
 
         try:
-            message = self._anthropic.messages.create(
+            message = await self._anthropic.messages.create(
                 model=self._model,
                 max_tokens=self._detail_max_tokens,
                 messages=[{"role": "user", "content": prompt}],

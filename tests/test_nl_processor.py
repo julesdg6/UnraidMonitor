@@ -98,7 +98,7 @@ class TestNLProcessor:
         response = Mock()
         response.stop_reason = "end_turn"
         response.content = [Mock(type="text", text="Everything looks fine!")]
-        client.messages.create = Mock(return_value=response)
+        client.messages.create = AsyncMock(return_value=response)
         return client
 
     @pytest.fixture
@@ -149,7 +149,7 @@ class TestNLProcessor:
         mock_executor.execute = AsyncMock(return_value="CONFIRMATION_NEEDED:restart:plex")
         # Mock final response
         response2 = Mock(stop_reason="end_turn", content=[Mock(type="text", text="I can restart plex for you.")])
-        mock_anthropic.messages.create = Mock(side_effect=[response1, response2])
+        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2])
 
         result = await processor.process(user_id=123, message="restart plex")
         assert result.pending_action is not None

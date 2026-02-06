@@ -23,7 +23,7 @@ async def test_diagnose_command_with_container_name():
     )
 
     mock_service = MagicMock(spec=DiagnosticService)
-    mock_service.gather_context.return_value = mock_context
+    mock_service.gather_context = AsyncMock(return_value=mock_context)
     mock_service.analyze = AsyncMock(return_value="Container crashed due to DB error.")
 
     handler = diagnose_command(state, mock_service)

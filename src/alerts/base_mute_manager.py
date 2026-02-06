@@ -1,5 +1,6 @@
 """Base class for mute managers with shared persistence logic."""
 
+import asyncio
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ class BaseMuteManager:
         """
         self._json_path = Path(json_path)
         self._mutes: dict[str, datetime] = {}
+        self._lock = asyncio.Lock()
         self._load()
 
     def _is_muted(self, key: str) -> bool:

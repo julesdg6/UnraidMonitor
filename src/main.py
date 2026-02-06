@@ -33,21 +33,47 @@ logger = logging.getLogger(__name__)
 
 
 class AlertManagerProxy:
-    """Proxy that gets chat_id dynamically from ChatIdStore."""
+    """Proxy that gets chat_id dynamically from ChatIdStore.
+
+    Queues alerts if no chat ID is available yet, delivering them
+    when the first /start command provides the chat ID.
+    """
+
+    MAX_QUEUED = 50
 
     def __init__(self, bot, chat_id_store: ChatIdStore, error_display_max_chars: int = 200):
         self.bot = bot
         self.chat_id_store = chat_id_store
         self.error_display_max_chars = error_display_max_chars
+        self._queued_alerts: list[tuple[str, dict]] = []
 
     async def _send_alert(self, method_name: str, **kwargs):
         """Generic alert sender that delegates to AlertManager."""
         chat_id = self.chat_id_store.get_chat_id()
         if chat_id:
+            # Flush any queued alerts first
+            if self._queued_alerts:
+                await self._flush_queue(chat_id)
             manager = AlertManager(self.bot, chat_id, error_display_max_chars=self.error_display_max_chars)
             await getattr(manager, method_name)(**kwargs)
         else:
-            logger.warning(f"No chat ID yet, cannot send {method_name.replace('_', ' ')}")
+            if len(self._queued_alerts) < self.MAX_QUEUED:
+                self._queued_alerts.append((method_name, kwargs))
+                logger.info(f"Queued {method_name.replace('_', ' ')} (no chat ID yet, {len(self._queued_alerts)} queued)")
+            else:
+                logger.warning(f"Alert queue full, dropping {method_name.replace('_', ' ')}")
+
+    async def _flush_queue(self, chat_id: int) -> None:
+        """Deliver all queued alerts."""
+        queued = self._queued_alerts[:]
+        self._queued_alerts.clear()
+        logger.info(f"Flushing {len(queued)} queued alerts")
+        manager = AlertManager(self.bot, chat_id, error_display_max_chars=self.error_display_max_chars)
+        for method_name, kwargs in queued:
+            try:
+                await getattr(manager, method_name)(**kwargs)
+            except Exception as e:
+                logger.error(f"Failed to send queued alert: {e}")
 
     async def send_crash_alert(self, **kwargs):
         await self._send_alert("send_crash_alert", **kwargs)
@@ -86,7 +112,7 @@ async def main() -> None:
     anthropic_client = None
     pattern_analyzer = None
     if config.anthropic_api_key:
-        anthropic_client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+        anthropic_client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
         pattern_analyzer = PatternAnalyzer(
             anthropic_client,
             model=ai_config.pattern_analyzer_model,

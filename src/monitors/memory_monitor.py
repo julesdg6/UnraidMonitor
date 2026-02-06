@@ -87,7 +87,7 @@ class MemoryMonitor:
         """Stop a container and record it as killed."""
         try:
             container = self._docker.containers.get(name)
-            container.stop()
+            await asyncio.to_thread(container.stop)
             self._killed_containers.append(name)
             logger.info(f"Stopped container {name} due to memory pressure")
         except docker.errors.NotFound:
@@ -227,7 +227,7 @@ class MemoryMonitor:
 
         try:
             container = self._docker.containers.get(name)
-            container.start()
+            await asyncio.to_thread(container.start)
             self._killed_containers.remove(name)
             logger.info(f"Restarted container {name}")
 

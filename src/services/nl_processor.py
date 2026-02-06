@@ -235,7 +235,7 @@ class NLProcessor:
         pending_action = None
 
         # Initial API call
-        response = self._anthropic.messages.create(
+        response = await self._anthropic.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
             system=SYSTEM_PROMPT,
@@ -275,7 +275,7 @@ class NLProcessor:
                 {"role": "user", "content": tool_results},
             ]
 
-            response = self._anthropic.messages.create(
+            response = await self._anthropic.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
                 system=SYSTEM_PROMPT,

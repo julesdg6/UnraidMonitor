@@ -28,7 +28,7 @@ async def test_full_diagnose_flow():
     mock_anthropic = MagicMock()
     mock_message = MagicMock()
     mock_message.content = [MagicMock(text="Database locked. Restart MariaDB.")]
-    mock_anthropic.messages.create = MagicMock(return_value=mock_message)
+    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
 
     service = DiagnosticService(mock_docker, mock_anthropic)
 
@@ -87,7 +87,7 @@ async def test_diagnose_reply_to_crash_alert():
     mock_anthropic = MagicMock()
     mock_message = MagicMock()
     mock_message.content = [MagicMock(text="Analysis result.")]
-    mock_anthropic.messages.create = MagicMock(return_value=mock_message)
+    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
 
     service = DiagnosticService(mock_docker, mock_anthropic)
 
@@ -138,7 +138,7 @@ async def test_diagnose_different_users_independent_contexts():
     mock_anthropic = MagicMock()
     mock_message = MagicMock()
     mock_message.content = [MagicMock(text="Brief analysis.")]
-    mock_anthropic.messages.create = MagicMock(return_value=mock_message)
+    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
 
     service = DiagnosticService(mock_docker, mock_anthropic)
 
@@ -240,7 +240,7 @@ async def test_diagnose_with_custom_line_count():
     )
 
     mock_service = MagicMock(spec=DiagnosticService)
-    mock_service.gather_context.return_value = mock_context
+    mock_service.gather_context = AsyncMock(return_value=mock_context)
     mock_service.analyze = AsyncMock(return_value="Analysis with more logs.")
 
     handler = diagnose_command(state, mock_service)

@@ -136,21 +136,33 @@ class LogWatcher:
 
         # Use queue to bridge blocking log stream to async processing
         queue: asyncio.Queue[str | None] = asyncio.Queue()
+        log_stream = None
+
+        loop = asyncio.get_event_loop()
 
         def stream_to_queue():
             """Blocking function that streams logs and puts them in the queue."""
+            nonlocal log_stream
             try:
-                for line in container.logs(stream=True, follow=True, tail=0):
+                log_stream = container.logs(stream=True, follow=True, tail=0)
+                for line in log_stream:
                     if not self._running:
                         break
                     decoded = line.decode("utf-8", errors="replace").strip()
                     if decoded:  # Skip empty lines
-                        queue.put_nowait(decoded)
+                        loop.call_soon_threadsafe(queue.put_nowait, decoded)
             except Exception as e:
-                logger.error(f"Error streaming logs from {container_name}: {e}")
+                if self._running:
+                    logger.error(f"Error streaming logs from {container_name}: {e}")
             finally:
+                # Close the log stream to release resources
+                if log_stream is not None:
+                    try:
+                        log_stream.close()
+                    except Exception:
+                        pass
                 # Signal end of stream
-                queue.put_nowait(None)
+                loop.call_soon_threadsafe(queue.put_nowait, None)
 
         # Start the blocking stream in a thread
         stream_task = asyncio.create_task(asyncio.to_thread(stream_to_queue))

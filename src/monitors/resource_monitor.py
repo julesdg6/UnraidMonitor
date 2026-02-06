@@ -174,23 +174,18 @@ class ResourceMonitor:
         """
         import asyncio
 
-        containers = self._docker.containers.list(all=True)
-        stats_list = []
+        containers = self._docker.containers.list(filters={"status": "running"})
 
-        for container in containers:
-            if container.status != "running":
-                continue
-
+        async def fetch_one(container) -> ContainerStats | None:
             try:
-                raw_stats = await asyncio.to_thread(
-                    container.stats, stream=False
-                )
-                stats = parse_container_stats(container.name, raw_stats)
-                stats_list.append(stats)
+                raw_stats = await asyncio.to_thread(container.stats, stream=False)
+                return parse_container_stats(container.name, raw_stats)
             except Exception as e:
                 logger.warning(f"Failed to get stats for {container.name}: {e}")
+                return None
 
-        return stats_list
+        results = await asyncio.gather(*(fetch_one(c) for c in containers))
+        return [s for s in results if s is not None]
 
     async def get_container_stats(self, name: str) -> ContainerStats | None:
         """Get current stats for a specific container.

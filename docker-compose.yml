@@ -20,6 +20,10 @@ services:
       - UNRAID_API_KEY=${UNRAID_API_KEY:-}
       - TZ=Europe/London
     volumes:
+      # SECURITY NOTE: Docker socket grants root-equivalent access to the host.
+      # The :ro flag only prevents deletion of the socket file, not API access.
+      # For hardened setups, consider using tecnativa/docker-socket-proxy to
+      # restrict exposed Docker API endpoints.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # For development, use local directories:
       # - ./config:/app/config:ro

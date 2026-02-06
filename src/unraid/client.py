@@ -153,6 +153,7 @@ class UnraidClientWrapper:
         # Create session with required headers for Unraid's CSRF protection
         self._session = aiohttp.ClientSession(
             connector=connector,
+            timeout=aiohttp.ClientTimeout(total=15),
             headers={
                 "x-api-key": self._api_key,
                 "Content-Type": "application/json",

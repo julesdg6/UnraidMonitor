@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Callable, Awaitable, TYPE_CHECKING
 
@@ -215,8 +216,8 @@ def logs_command(
         container = matches[0]
 
         try:
-            docker_container = docker_client.containers.get(container.name)
-            log_bytes = docker_container.logs(tail=lines, timestamps=False)
+            docker_container = await asyncio.to_thread(docker_client.containers.get, container.name)
+            log_bytes = await asyncio.to_thread(docker_container.logs, tail=lines, timestamps=False)
             log_text = log_bytes.decode("utf-8", errors="replace")
 
             # Truncate if too long for Telegram

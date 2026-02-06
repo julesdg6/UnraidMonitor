@@ -1,7 +1,7 @@
 """Tests for Haiku-based pattern analysis."""
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ class TestPatternAnalyzer:
     "explanation": "Connection refused errors to any host on any port"
 }
 ```'''
-        mock_anthropic_client.messages.create.return_value = mock_response
+        mock_anthropic_client.messages.create = AsyncMock(return_value=mock_response)
 
         analyzer = PatternAnalyzer(mock_anthropic_client)
 
@@ -53,7 +53,7 @@ class TestPatternAnalyzer:
     "explanation": "Database pool exhaustion errors"
 }
 ```'''
-        mock_anthropic_client.messages.create.return_value = mock_response
+        mock_anthropic_client.messages.create = AsyncMock(return_value=mock_response)
 
         analyzer = PatternAnalyzer(mock_anthropic_client)
 

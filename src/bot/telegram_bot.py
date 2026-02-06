@@ -124,6 +124,8 @@ def create_details_handler(
     """Factory for details follow-up handler."""
 
     async def handler(message: Message) -> None:
+        if not message.from_user:
+            return
         user_id = message.from_user.id
 
         if not diagnostic_service.has_pending(user_id):

@@ -40,7 +40,7 @@ class PatternAnalyzer:
 
     def __init__(
         self,
-        anthropic_client: "anthropic.Anthropic | None",
+        anthropic_client: "anthropic.AsyncAnthropic | None",
         model: str = "claude-haiku-4-5-20251001",
         max_tokens: int = 500,
         context_lines: int = 30,
@@ -79,7 +79,7 @@ class PatternAnalyzer:
         )
 
         try:
-            response = self._client.messages.create(
+            response = await self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
                 messages=[{"role": "user", "content": prompt}],

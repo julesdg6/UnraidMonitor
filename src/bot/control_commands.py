@@ -72,6 +72,8 @@ def _control_command(
         container_info = state.get(container_name)
         status = container_info.status if container_info else "unknown"
 
+        if not message.from_user:
+            return
         user_id = message.from_user.id
         confirmation.request(user_id, action=action, container_name=container_name)
 
@@ -125,6 +127,8 @@ def create_confirm_handler(
 ) -> Callable[[Message], Awaitable[None]]:
     """Factory for confirmation handler (responds to 'yes')."""
     async def handler(message: Message) -> None:
+        if not message.from_user:
+            return
         user_id = message.from_user.id
         pending = confirmation.confirm(user_id)
 

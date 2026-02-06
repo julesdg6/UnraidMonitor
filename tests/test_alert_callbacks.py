@@ -283,7 +283,7 @@ class TestDiagnoseCallback:
         diagnostic = MagicMock()
         context = MagicMock()
         context.brief_summary = None
-        diagnostic.gather_context.return_value = context
+        diagnostic.gather_context = AsyncMock(return_value=context)
         diagnostic.analyze = AsyncMock(return_value="Container crashed due to OOM")
         diagnostic.store_context = MagicMock()
 
@@ -323,7 +323,7 @@ class TestDiagnoseCallback:
     async def test_diagnose_gather_context_fails(self, state, mock_callback):
         """Test diagnose when context gathering fails."""
         diagnostic = MagicMock()
-        diagnostic.gather_context.return_value = None
+        diagnostic.gather_context = AsyncMock(return_value=None)
 
         handler = diagnose_callback(state, diagnostic)
         mock_callback.data = "diagnose:plex"
@@ -338,7 +338,7 @@ class TestDiagnoseCallback:
         """Test diagnose with container name containing colons."""
         diagnostic = MagicMock()
         context = MagicMock()
-        diagnostic.gather_context.return_value = context
+        diagnostic.gather_context = AsyncMock(return_value=context)
         diagnostic.analyze = AsyncMock(return_value="Analysis result")
 
         handler = diagnose_callback(state, diagnostic)

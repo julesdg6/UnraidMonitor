@@ -160,9 +160,11 @@ def logs_callback(
             if callback.message:
                 await callback.message.answer(f"Container '{actual_name}' not found in Docker")
         except Exception as e:
-            logger.error(f"Error getting logs: {e}")
+            logger.error(f"Error getting logs for {actual_name}: {e}", exc_info=True)
             if callback.message:
-                await callback.message.answer(f"Error getting logs: {e}")
+                await callback.message.answer(
+                    f"❌ Error getting logs for {actual_name}. Check bot logs for details."
+                )
 
     return handler
 
@@ -211,7 +213,7 @@ def diagnose_callback(
             await callback.message.answer(f"Analyzing {actual_name}...")
 
         # Gather context
-        context = diagnostic_service.gather_context(actual_name, lines=50)
+        context = await diagnostic_service.gather_context(actual_name, lines=50)
         if not context:
             if callback.message:
                 await callback.message.answer(f"Could not get container info for '{actual_name}'")

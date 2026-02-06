@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -10,6 +11,9 @@ if TYPE_CHECKING:
     from src.alerts.server_mute_manager import ServerMuteManager
 
 logger = logging.getLogger(__name__)
+
+# Minimum seconds between repeated alerts of the same type
+_ALERT_COOLDOWN = 300  # 5 minutes
 
 
 class UnraidSystemMonitor:
@@ -36,6 +40,7 @@ class UnraidSystemMonitor:
         self._mute_manager = mute_manager
         self._running = False
         self._task: asyncio.Task | None = None
+        self._last_alert_times: dict[str, float] = {}
 
     async def start(self) -> None:
         """Start the monitoring loop."""
@@ -87,7 +92,8 @@ class UnraidSystemMonitor:
         # Check CPU temperature (None when not available from GraphQL schema)
         cpu_temp = metrics.get("cpu_temperature")
         if cpu_temp is not None and cpu_temp > self._config.cpu_temp_threshold:
-            await self._on_alert(
+            await self._rate_limited_alert(
+                key="cpu_temp",
                 title="High CPU Temperature",
                 message=f"Temperature: {cpu_temp:.1f}°C (threshold: {self._config.cpu_temp_threshold}°C)\n"
                         f"Current load: {metrics.get('cpu_percent', 0):.1f}%",
@@ -98,7 +104,8 @@ class UnraidSystemMonitor:
         cpu_percent = metrics.get("cpu_percent", 0)
         if cpu_percent > self._config.cpu_usage_threshold:
             temp_info = f"\nTemperature: {cpu_temp:.1f}°C" if cpu_temp is not None else ""
-            await self._on_alert(
+            await self._rate_limited_alert(
+                key="cpu_usage",
                 title="High CPU Usage",
                 message=f"Usage: {cpu_percent:.1f}% (threshold: {self._config.cpu_usage_threshold}%){temp_info}",
                 alert_type="server",
@@ -108,7 +115,8 @@ class UnraidSystemMonitor:
         memory_percent = metrics.get("memory_percent", 0)
         if memory_percent > self._config.memory_usage_threshold:
             memory_gb = metrics.get("memory_used", 0) / (1024**3)
-            await self._on_alert(
+            await self._rate_limited_alert(
+                key="memory",
                 title="Memory Critical",
                 message=f"Usage: {memory_percent:.1f}% (threshold: {self._config.memory_usage_threshold}%)\n"
                         f"Used: {memory_gb:.1f} GB",
@@ -116,6 +124,16 @@ class UnraidSystemMonitor:
             )
 
         return metrics
+
+    async def _rate_limited_alert(self, key: str, **kwargs) -> None:
+        """Send an alert only if cooldown has elapsed for this key."""
+        now = time.monotonic()
+        last = self._last_alert_times.get(key, 0)
+        if now - last < _ALERT_COOLDOWN:
+            logger.debug(f"Suppressing duplicate {key} alert (cooldown)")
+            return
+        self._last_alert_times[key] = now
+        await self._on_alert(**kwargs)
 
     async def get_current_metrics(self) -> dict | None:
         """Get current metrics without alerting (for commands).

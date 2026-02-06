@@ -102,6 +102,7 @@ class DockerEventMonitor:
             raise RuntimeError("Not connected to Docker")
 
         self._running = True
+        self._loop = asyncio.get_event_loop()
         logger.info("Starting Docker event monitor")
 
         # Start the alert processor task
@@ -204,18 +205,14 @@ class DockerEventMonitor:
                 if action in ("start", "die", "health_status"):
                     self._handle_event(event)
 
-                # Queue die events for crash alert processing
+                # Queue die events for crash alert processing (thread-safe)
                 if action == "die" and self.alert_manager:
                     try:
-                        self._pending_alerts.put_nowait(event)
+                        self._loop.call_soon_threadsafe(
+                            self._pending_alerts.put_nowait, event
+                        )
                     except asyncio.QueueFull:
-                        logger.warning("Alert queue full, dropping oldest event")
-                        # Try to make room by getting one item (non-blocking)
-                        try:
-                            self._pending_alerts.get_nowait()
-                            self._pending_alerts.put_nowait(event)
-                        except Exception as e:
-                            logger.warning(f"Failed to recover from full alert queue: {e}")
+                        logger.warning("Alert queue full, dropping event")
                     except Exception as e:
                         logger.error(f"Failed to queue crash event: {e}")
 

@@ -1,5 +1,6 @@
 """Tool definitions for Claude API tool use in natural language chat."""
 
+import asyncio
 from typing import Any, TYPE_CHECKING
 
 import docker
@@ -330,8 +331,8 @@ class NLToolExecutor:
         if isinstance(resolved, str):
             return resolved
         try:
-            container = self._docker.containers.get(resolved.name)
-            log_bytes = container.logs(tail=lines, timestamps=False)
+            container = await asyncio.to_thread(self._docker.containers.get, resolved.name)
+            log_bytes = await asyncio.to_thread(container.logs, tail=lines, timestamps=False)
             logs = log_bytes.decode("utf-8", errors="replace")
             if not logs.strip():
                 return f"No recent logs for {resolved.name}"
