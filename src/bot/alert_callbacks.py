@@ -62,6 +62,11 @@ def restart_callback(
 
         actual_name = matches[0].name
 
+        # Check if container is protected
+        if controller.is_protected(actual_name):
+            await callback.answer(f"{actual_name} is protected", show_alert=True)
+            return
+
         # Acknowledge button press
         await callback.answer(f"Restarting {actual_name}...")
 

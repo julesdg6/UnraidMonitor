@@ -112,7 +112,6 @@ async def test_server_command_detailed():
     message.answer.assert_called_once()
     response = message.answer.call_args[0][0]
 
-    assert "Swap" in response or "swap" in response
     assert "Array" in response
     assert "STARTED" in response
 

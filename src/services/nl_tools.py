@@ -398,9 +398,9 @@ class NLToolExecutor:
 
         # CPU info
         cpu_percent = metrics.get("cpu_percent", 0)
-        cpu_temp = metrics.get("cpu_temperature", 0)
+        cpu_temp = metrics.get("cpu_temperature")
         lines.append(f"  CPU: {cpu_percent:.1f}%")
-        if cpu_temp:
+        if cpu_temp is not None:
             lines.append(f"  CPU Temperature: {cpu_temp:.1f}°C")
 
         # Memory info
@@ -436,35 +436,52 @@ class NLToolExecutor:
         state = status.get("state", "unknown")
         lines.append(f"  State: {state}")
 
+        # Capacity info (from GraphQL: capacity.kilobytes.{used,total,free})
+        capacity_kb = status.get("capacity", {}).get("kilobytes", {})
+        kb_to_tb = 1024 * 1024 * 1024  # KB -> TB
+        used_kb = float(capacity_kb.get("used", 0))
+        total_kb = float(capacity_kb.get("total", 0))
+        free_kb = float(capacity_kb.get("free", 0))
+        if total_kb > 0:
+            used_tb = used_kb / kb_to_tb
+            total_tb = total_kb / kb_to_tb
+            free_tb = free_kb / kb_to_tb
+            percent = (used_kb / total_kb) * 100
+            lines.append(f"  Capacity: {used_tb:.1f}TB / {total_tb:.1f}TB ({percent:.1f}% used, {free_tb:.1f}TB free)")
+
         # Parity info
-        parity_status = status.get("parity_status")
-        if parity_status:
-            lines.append(f"  Parity: {parity_status}")
+        parities = status.get("parities", [])
+        if parities:
+            lines.append(f"  Parity Disks: {len(parities)}")
+            for p in parities:
+                name = p.get("name", "unknown")
+                p_status = p.get("status", "unknown").replace("DISK_", "")
+                temp = p.get("temp", 0)
+                lines.append(f"    - {name}: {p_status} ({temp}°C)")
 
-        parity_check = status.get("parity_check_progress")
-        if parity_check is not None:
-            lines.append(f"  Parity Check: {parity_check}% complete")
-
-        # Disk info
+        # Data disk info (status values are like "DISK_OK", "DISK_NP", etc.)
         disks = status.get("disks", [])
         if disks:
-            lines.append(f"  Disks: {len(disks)} total")
-            unhealthy = [d for d in disks if d.get("status") != "healthy"]
+            lines.append(f"  Data Disks: {len(disks)} total")
+            unhealthy = [d for d in disks if d.get("status") != "DISK_OK"]
             if unhealthy:
                 lines.append(f"  Warning: {len(unhealthy)} disk(s) have issues:")
                 for disk in unhealthy:
-                    lines.append(f"    - {disk.get('name', 'unknown')}: {disk.get('status', 'unknown')}")
+                    name = disk.get("name", "unknown")
+                    d_status = disk.get("status", "unknown").replace("DISK_", "")
+                    lines.append(f"    - {name}: {d_status}")
             else:
                 lines.append("  All disks healthy")
 
-        # Capacity info
-        used = status.get("used_bytes", 0)
-        total = status.get("total_bytes", 0)
-        if total > 0:
-            used_tb = used / (1024**4)
-            total_tb = total / (1024**4)
-            percent = (used / total) * 100
-            lines.append(f"  Capacity: {used_tb:.1f}TB / {total_tb:.1f}TB ({percent:.1f}% used)")
+        # Cache info
+        caches = status.get("caches", [])
+        if caches:
+            lines.append(f"  Cache Disks: {len(caches)}")
+            for cache in caches:
+                name = cache.get("name", "unknown")
+                c_status = cache.get("status", "unknown").replace("DISK_", "")
+                temp = cache.get("temp", 0)
+                lines.append(f"    - {name}: {c_status} ({temp}°C)")
 
         return "\n".join(lines)
 

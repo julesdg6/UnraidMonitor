@@ -67,13 +67,14 @@ async def format_server_brief(system_monitor: "UnraidSystemMonitor") -> str | No
         return None
 
     cpu = metrics.get("cpu_percent", 0)
-    temp = metrics.get("cpu_temperature", 0)
+    temp = metrics.get("cpu_temperature")
     memory = metrics.get("memory_percent", 0)
     uptime = format_uptime(metrics.get("uptime", ""))
 
+    temp_str = f" ({temp:.1f}°C)" if temp is not None else ""
     return (
         f"🖥️ *Unraid Server*\n"
-        f"CPU: {cpu:.1f}% ({temp:.1f}°C) • RAM: {memory:.1f}%\n"
+        f"CPU: {cpu:.1f}%{temp_str} • RAM: {memory:.1f}%\n"
         f"Uptime: {uptime}"
     )
 
@@ -90,25 +91,21 @@ async def format_server_detailed(system_monitor: "UnraidSystemMonitor") -> str |
         return None
 
     cpu = metrics.get("cpu_percent", 0)
-    temp = metrics.get("cpu_temperature", 0)
+    temp = metrics.get("cpu_temperature")
     memory = metrics.get("memory_percent", 0)
     memory_gb = metrics.get("memory_used", 0) / (1024**3)
     uptime = format_uptime(metrics.get("uptime", ""))
-    swap = metrics.get("swap_percent", 0)
-    power = metrics.get("cpu_power", 0)
 
     lines = [
         "🖥️ *Unraid Server Status*\n",
         f"*CPU:* {cpu:.1f}%",
-        f"*CPU Temp:* {temp:.1f}°C",
     ]
 
-    if power:
-        lines.append(f"*CPU Power:* {power:.1f}W")
+    if temp is not None:
+        lines.append(f"*CPU Temp:* {temp:.1f}°C")
 
     lines.extend([
         f"\n*Memory:* {memory:.1f}% ({memory_gb:.1f} GB)",
-        f"*Swap:* {swap:.1f}%",
         f"\n*Uptime:* {uptime}",
     ])
 

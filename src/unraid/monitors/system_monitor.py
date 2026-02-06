@@ -84,9 +84,9 @@ class UnraidSystemMonitor:
             logger.debug("Server alerts muted, skipping checks")
             return metrics
 
-        # Check CPU temperature
-        cpu_temp = metrics.get("cpu_temperature", 0)
-        if cpu_temp and cpu_temp > self._config.cpu_temp_threshold:
+        # Check CPU temperature (None when not available from GraphQL schema)
+        cpu_temp = metrics.get("cpu_temperature")
+        if cpu_temp is not None and cpu_temp > self._config.cpu_temp_threshold:
             await self._on_alert(
                 title="High CPU Temperature",
                 message=f"Temperature: {cpu_temp:.1f}°C (threshold: {self._config.cpu_temp_threshold}°C)\n"
@@ -97,10 +97,10 @@ class UnraidSystemMonitor:
         # Check CPU usage
         cpu_percent = metrics.get("cpu_percent", 0)
         if cpu_percent > self._config.cpu_usage_threshold:
+            temp_info = f"\nTemperature: {cpu_temp:.1f}°C" if cpu_temp is not None else ""
             await self._on_alert(
                 title="High CPU Usage",
-                message=f"Usage: {cpu_percent:.1f}% (threshold: {self._config.cpu_usage_threshold}%)\n"
-                        f"Temperature: {cpu_temp:.1f}°C",
+                message=f"Usage: {cpu_percent:.1f}% (threshold: {self._config.cpu_usage_threshold}%){temp_info}",
                 alert_type="server",
             )
 

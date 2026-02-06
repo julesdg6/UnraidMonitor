@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Any
 
 import docker
 
@@ -67,33 +68,72 @@ class ContainerController:
             return f"❌ Failed to start {container_name}. Check logs for details."
 
     async def pull_and_recreate(self, container_name: str) -> str:
-        """Pull latest image and recreate container. Returns a status message."""
+        """Pull latest image and recreate container. Returns a status message.
+
+        Uses a safe approach:
+        1. Pull the new image first (no changes to running container)
+        2. Save full container config
+        3. Stop and remove old container
+        4. Attempt recreation with new image
+        5. If recreation fails, attempt rollback with old image
+        """
         try:
             container = self.docker_client.containers.get(container_name)
             image_name = container.image.tags[0] if container.image.tags else container.image.id
+            old_image_id = container.image.id
 
-            # Pull latest image
+            # Step 1: Pull latest image BEFORE touching the running container
             logger.info(f"Pulling image for {container_name}: {image_name}")
             await asyncio.to_thread(self.docker_client.images.pull, image_name)
 
-            # Get container config before stopping
-            config = container.attrs
+            # Step 2: Save full container config while still running
+            attrs = container.attrs
+            run_config = self._extract_run_config(attrs)
 
-            # Stop and remove old container
+            # Step 3: Stop and remove old container
             await asyncio.to_thread(container.stop)
             await asyncio.to_thread(container.remove)
 
-            # Recreate container with same config
-            new_container = await asyncio.to_thread(
-                self.docker_client.containers.run,
-                image_name,
-                name=container_name,
-                detach=True,
-                **self._extract_run_config(config),
-            )
+            # Step 4: Recreate container with new image
+            try:
+                await asyncio.to_thread(
+                    self.docker_client.containers.run,
+                    image_name,
+                    name=container_name,
+                    detach=True,
+                    **run_config,
+                )
+                logger.info(f"Recreated container: {container_name}")
+                return f"✅ {container_name} updated (pulled {image_name} and recreated)"
 
-            logger.info(f"Recreated container: {container_name}")
-            return f"✅ {container_name} updated (pulled {image_name} and recreated)"
+            except Exception as recreate_err:
+                # Step 5: Rollback -- try to recreate with old image
+                logger.error(
+                    f"Failed to recreate {container_name} with new image: {recreate_err}",
+                    exc_info=True,
+                )
+                try:
+                    await asyncio.to_thread(
+                        self.docker_client.containers.run,
+                        old_image_id,
+                        name=container_name,
+                        detach=True,
+                        **run_config,
+                    )
+                    logger.info(f"Rolled back {container_name} to previous image")
+                    return (
+                        f"❌ Failed to recreate {container_name} with new image. "
+                        f"Rolled back to previous version. Check logs for details."
+                    )
+                except Exception as rollback_err:
+                    logger.error(
+                        f"CRITICAL: Rollback also failed for {container_name}: {rollback_err}",
+                        exc_info=True,
+                    )
+                    return (
+                        f"❌ CRITICAL: {container_name} was removed but could not be recreated. "
+                        f"Manual intervention required. Check logs for details."
+                    )
 
         except docker.errors.NotFound:
             return f"❌ Container '{container_name}' not found"
@@ -102,25 +142,93 @@ class ContainerController:
             return f"❌ Failed to update {container_name}. Check logs for details."
 
     def _extract_run_config(self, attrs: dict) -> dict:
-        """Extract run configuration from container attributes."""
+        """Extract comprehensive run configuration from container attributes.
+
+        Extracts all significant container properties to ensure faithful recreation.
+        """
         config = attrs.get("Config", {})
         host_config = attrs.get("HostConfig", {})
+        networking = attrs.get("NetworkingConfig", {})
 
-        run_config = {}
+        run_config: dict[str, Any] = {}
 
+        # From Config
         if config.get("Env"):
             run_config["environment"] = config["Env"]
+        if config.get("Labels"):
+            run_config["labels"] = config["Labels"]
+        if config.get("Cmd"):
+            run_config["command"] = config["Cmd"]
+        if config.get("Entrypoint"):
+            run_config["entrypoint"] = config["Entrypoint"]
+        if config.get("WorkingDir"):
+            run_config["working_dir"] = config["WorkingDir"]
+        if config.get("User"):
+            run_config["user"] = config["User"]
+        if config.get("Healthcheck"):
+            run_config["healthcheck"] = config["Healthcheck"]
+        if config.get("StopSignal"):
+            run_config["stop_signal"] = config["StopSignal"]
+        if config.get("Hostname"):
+            run_config["hostname"] = config["Hostname"]
+        if config.get("Domainname"):
+            run_config["domainname"] = config["Domainname"]
+        if config.get("Tty"):
+            run_config["tty"] = config["Tty"]
+        if config.get("OpenStdin"):
+            run_config["stdin_open"] = config["OpenStdin"]
 
+        # From HostConfig
         if host_config.get("Binds"):
             run_config["volumes"] = host_config["Binds"]
-
         if host_config.get("PortBindings"):
             run_config["ports"] = host_config["PortBindings"]
-
         if host_config.get("RestartPolicy"):
             run_config["restart_policy"] = host_config["RestartPolicy"]
-
         if host_config.get("NetworkMode"):
             run_config["network_mode"] = host_config["NetworkMode"]
+        if host_config.get("Privileged"):
+            run_config["privileged"] = host_config["Privileged"]
+        if host_config.get("CapAdd"):
+            run_config["cap_add"] = host_config["CapAdd"]
+        if host_config.get("CapDrop"):
+            run_config["cap_drop"] = host_config["CapDrop"]
+        if host_config.get("Devices"):
+            run_config["devices"] = [
+                f"{d['PathOnHost']}:{d['PathInContainer']}:{d.get('CgroupPermissions', 'rwm')}"
+                for d in host_config["Devices"]
+            ]
+        if host_config.get("Dns"):
+            run_config["dns"] = host_config["Dns"]
+        if host_config.get("DnsSearch"):
+            run_config["dns_search"] = host_config["DnsSearch"]
+        if host_config.get("ExtraHosts"):
+            run_config["extra_hosts"] = host_config["ExtraHosts"]
+        if host_config.get("LogConfig"):
+            run_config["log_config"] = host_config["LogConfig"]
+        if host_config.get("Tmpfs"):
+            run_config["tmpfs"] = host_config["Tmpfs"]
+        if host_config.get("Ulimits"):
+            run_config["ulimits"] = host_config["Ulimits"]
+        if host_config.get("Sysctls"):
+            run_config["sysctls"] = host_config["Sysctls"]
+        if host_config.get("SecurityOpt"):
+            run_config["security_opt"] = host_config["SecurityOpt"]
+        if host_config.get("PidMode"):
+            run_config["pid_mode"] = host_config["PidMode"]
+        if host_config.get("IpcMode") and host_config["IpcMode"] != "private":
+            run_config["ipc_mode"] = host_config["IpcMode"]
+        if host_config.get("ShmSize") and host_config["ShmSize"] != 67108864:  # != default 64MB
+            run_config["shm_size"] = host_config["ShmSize"]
+
+        # Resource limits
+        if host_config.get("NanoCpus"):
+            run_config["nano_cpus"] = host_config["NanoCpus"]
+        if host_config.get("CpuShares") and host_config["CpuShares"] != 0:
+            run_config["cpu_shares"] = host_config["CpuShares"]
+        if host_config.get("Memory") and host_config["Memory"] != 0:
+            run_config["mem_limit"] = host_config["Memory"]
+        if host_config.get("MemoryReservation") and host_config["MemoryReservation"] != 0:
+            run_config["mem_reservation"] = host_config["MemoryReservation"]
 
         return run_config

@@ -89,9 +89,9 @@ async def test_unraid_client_get_system_metrics():
 
         metrics = await wrapper.get_system_metrics()
 
-        assert metrics["hostname"] == "Tower"
         assert metrics["uptime"] == "5 days, 3 hours"
         assert metrics["cpu_percent"] == 25.5
+        assert metrics["cpu_temperature"] is None  # Not available in GraphQL schema
         assert metrics["memory_percent"] == 50.0
         assert metrics["memory_used"] == 17179869184
         assert metrics["memory_total"] == 34359738368

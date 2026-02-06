@@ -389,12 +389,12 @@ def manage_selection_handler(
                 else:
                     await message.answer("Failed to unmute.")
             elif mute_type == "server" and server_mute_manager:
-                if server_mute_manager.remove_mute("server"):
+                if server_mute_manager.unmute_server():
                     await message.answer("🔔 *Server alerts unmuted*", parse_mode="Markdown")
                 else:
                     await message.answer("Failed to unmute server alerts.")
             elif mute_type == "array" and array_mute_manager:
-                if array_mute_manager.unmute():
+                if array_mute_manager.unmute_array():
                     await message.answer("🔔 *Array alerts unmuted*", parse_mode="Markdown")
                 else:
                     await message.answer("Failed to unmute array alerts.")

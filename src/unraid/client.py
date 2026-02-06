@@ -240,9 +240,8 @@ class UnraidClientWrapper:
         memory_total = mem_metrics.get("total", 0)
 
         return {
-            "hostname": hostname,
             "cpu_percent": cpu_percent,
-            "cpu_temperature": 0,  # Not available in this schema
+            "cpu_temperature": None,  # Not available in current Unraid GraphQL schema
             "memory_percent": memory_percent,
             "memory_used": memory_used,
             "memory_total": memory_total,

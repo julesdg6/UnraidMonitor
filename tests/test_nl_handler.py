@@ -119,6 +119,7 @@ class TestNLConfirmCallback:
     @pytest.mark.asyncio
     async def test_confirm_executes_action(self, mock_callback, mock_processor):
         mock_controller = Mock()
+        mock_controller.is_protected = Mock(return_value=False)
         mock_controller.restart = AsyncMock(return_value="✅ plex restarted")
 
         handler = create_nl_confirm_callback(mock_processor, mock_controller)
@@ -129,6 +130,7 @@ class TestNLConfirmCallback:
     @pytest.mark.asyncio
     async def test_confirm_updates_message(self, mock_callback, mock_processor):
         mock_controller = Mock()
+        mock_controller.is_protected = Mock(return_value=False)
         mock_controller.restart = AsyncMock(return_value="✅ plex restarted")
 
         handler = create_nl_confirm_callback(mock_processor, mock_controller)
@@ -141,6 +143,7 @@ class TestNLConfirmCallback:
     @pytest.mark.asyncio
     async def test_confirm_clears_pending_action(self, mock_callback, mock_processor):
         mock_controller = Mock()
+        mock_controller.is_protected = Mock(return_value=False)
         mock_controller.restart = AsyncMock(return_value="✅ plex restarted")
 
         # Set up pending action in memory
@@ -158,6 +161,7 @@ class TestNLConfirmCallback:
     async def test_confirm_stop_action(self, mock_callback, mock_processor):
         mock_callback.data = "nl_confirm:stop:radarr"
         mock_controller = Mock()
+        mock_controller.is_protected = Mock(return_value=False)
         mock_controller.stop = AsyncMock(return_value="✅ radarr stopped")
 
         handler = create_nl_confirm_callback(mock_processor, mock_controller)
@@ -169,6 +173,7 @@ class TestNLConfirmCallback:
     async def test_confirm_start_action(self, mock_callback, mock_processor):
         mock_callback.data = "nl_confirm:start:sonarr"
         mock_controller = Mock()
+        mock_controller.is_protected = Mock(return_value=False)
         mock_controller.start = AsyncMock(return_value="✅ sonarr started")
 
         handler = create_nl_confirm_callback(mock_processor, mock_controller)
@@ -180,6 +185,7 @@ class TestNLConfirmCallback:
     async def test_confirm_pull_action(self, mock_callback, mock_processor):
         mock_callback.data = "nl_confirm:pull:jellyfin"
         mock_controller = Mock()
+        mock_controller.is_protected = Mock(return_value=False)
         mock_controller.pull_and_recreate = AsyncMock(return_value="✅ jellyfin updated")
 
         handler = create_nl_confirm_callback(mock_processor, mock_controller)
@@ -191,6 +197,7 @@ class TestNLConfirmCallback:
     async def test_confirm_unknown_action(self, mock_callback, mock_processor):
         mock_callback.data = "nl_confirm:unknown:container"
         mock_controller = Mock()
+        mock_controller.is_protected = Mock(return_value=False)
 
         handler = create_nl_confirm_callback(mock_processor, mock_controller)
         await handler(mock_callback)

@@ -95,6 +95,14 @@ def create_nl_confirm_callback(processor: Any, controller: Any) -> Callable[[Any
         if memory:
             memory.pending_action = None
 
+        # Check if container is protected
+        if controller.is_protected(container):
+            result = f"❌ {container} is a protected container and cannot be controlled via Telegram."
+            if callback.message:
+                await callback.message.edit_text(result)
+            await callback.answer()
+            return
+
         # Execute the action
         try:
             if action == "restart":

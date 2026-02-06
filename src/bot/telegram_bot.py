@@ -3,7 +3,7 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, BaseMiddleware, F
 from aiogram.filters import Command, Filter
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.exceptions import TelegramBadRequest
 import docker
 
@@ -154,8 +154,8 @@ class AuthMiddleware(BaseMiddleware):
 
     async def __call__(
         self,
-        handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
-        event: Message,
+        handler: Callable[[Message | CallbackQuery, dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
         data: dict[str, Any],
     ) -> Any:
         user_id = event.from_user.id if event.from_user else None
@@ -164,8 +164,8 @@ class AuthMiddleware(BaseMiddleware):
             logger.warning(f"Unauthorized access attempt from user {user_id}")
             return None
 
-        # Capture chat ID for alerts if store is provided
-        if self.chat_id_store is not None and event.chat:
+        # Capture chat ID for alerts if store is provided (Messages have .chat directly)
+        if self.chat_id_store is not None and isinstance(event, Message) and event.chat:
             self.chat_id_store.set_chat_id(event.chat.id)
 
         return await handler(event, data)
@@ -184,7 +184,9 @@ def create_bot(token: str) -> Bot:
 def create_dispatcher(allowed_users: list[int], chat_id_store=None) -> Dispatcher:
     """Create dispatcher with auth middleware."""
     dp = Dispatcher()
-    dp.message.middleware(AuthMiddleware(allowed_users, chat_id_store=chat_id_store))
+    auth = AuthMiddleware(allowed_users, chat_id_store=chat_id_store)
+    dp.message.middleware(auth)
+    dp.callback_query.middleware(auth)
     return dp
 
 

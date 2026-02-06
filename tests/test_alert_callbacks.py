@@ -43,6 +43,7 @@ class TestRestartCallback:
     async def test_restart_success(self, state, mock_callback):
         """Test successful container restart."""
         controller = MagicMock()
+        controller.is_protected = MagicMock(return_value=False)
         controller.restart = AsyncMock(return_value="✅ Restarted plex")
 
         handler = restart_callback(state, controller)
@@ -83,6 +84,7 @@ class TestRestartCallback:
     async def test_restart_container_with_colons(self, state, mock_callback):
         """Test restart with container name containing colons."""
         controller = MagicMock()
+        controller.is_protected = MagicMock(return_value=False)
         controller.restart = AsyncMock(return_value="✅ Restarted my:container:with:colons")
 
         handler = restart_callback(state, controller)
@@ -109,6 +111,7 @@ class TestRestartCallback:
     async def test_restart_partial_match(self, state, mock_callback):
         """Test restart with partial container name match."""
         controller = MagicMock()
+        controller.is_protected = MagicMock(return_value=False)
         controller.restart = AsyncMock(return_value="✅ Restarted radarr")
 
         handler = restart_callback(state, controller)
