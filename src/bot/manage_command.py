@@ -1,6 +1,7 @@
 """Manage command for ignores and mutes."""
 
 import logging
+import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -20,38 +21,72 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# TTL for pending selections (10 minutes)
+_SELECTION_TTL = 600
+
 
 class ManageSelectionState:
     """Shared state for manage selections across handlers."""
 
     def __init__(self):
-        # For ignore removal: user_id -> (container, [(index, pattern, explanation)])
-        self.pending_ignore_removal: dict[int, tuple[str, list[tuple[int, str, str | None]]]] = {}
-        # For mute removal: user_id -> list of (mute_type, key) where mute_type is 'container', 'server', or 'array'
-        self.pending_mute_removal: dict[int, list[tuple[str, str]]] = {}
+        # For ignore removal: user_id -> (timestamp, container, [(index, pattern, explanation)])
+        self.pending_ignore_removal: dict[int, tuple[float, str, list[tuple[int, str, str | None]]]] = {}
+        # For mute removal: user_id -> (timestamp, list of (mute_type, key))
+        self.pending_mute_removal: dict[int, tuple[float, list[tuple[str, str]]]] = {}
 
     def set_pending_ignore(
         self, user_id: int, container: str, ignores: list[tuple[int, str, str | None]]
     ) -> None:
-        self.pending_ignore_removal[user_id] = (container, ignores)
+        self._cleanup()
+        self.pending_ignore_removal[user_id] = (time.monotonic(), container, ignores)
 
     def get_pending_ignore(self, user_id: int) -> tuple[str, list[tuple[int, str, str | None]]] | None:
-        return self.pending_ignore_removal.get(user_id)
+        entry = self.pending_ignore_removal.get(user_id)
+        if entry is None:
+            return None
+        if time.monotonic() - entry[0] > _SELECTION_TTL:
+            del self.pending_ignore_removal[user_id]
+            return None
+        return entry[1], entry[2]
 
     def clear_pending_ignore(self, user_id: int) -> None:
         self.pending_ignore_removal.pop(user_id, None)
 
     def set_pending_mute(self, user_id: int, mutes: list[tuple[str, str]]) -> None:
-        self.pending_mute_removal[user_id] = mutes
+        self._cleanup()
+        self.pending_mute_removal[user_id] = (time.monotonic(), mutes)
 
     def get_pending_mute(self, user_id: int) -> list[tuple[str, str]] | None:
-        return self.pending_mute_removal.get(user_id)
+        entry = self.pending_mute_removal.get(user_id)
+        if entry is None:
+            return None
+        if time.monotonic() - entry[0] > _SELECTION_TTL:
+            del self.pending_mute_removal[user_id]
+            return None
+        return entry[1]
 
     def clear_pending_mute(self, user_id: int) -> None:
         self.pending_mute_removal.pop(user_id, None)
 
     def has_pending(self, user_id: int) -> bool:
-        return user_id in self.pending_ignore_removal or user_id in self.pending_mute_removal
+        now = time.monotonic()
+        ig = self.pending_ignore_removal.get(user_id)
+        if ig and now - ig[0] > _SELECTION_TTL:
+            del self.pending_ignore_removal[user_id]
+            ig = None
+        mt = self.pending_mute_removal.get(user_id)
+        if mt and now - mt[0] > _SELECTION_TTL:
+            del self.pending_mute_removal[user_id]
+            mt = None
+        return ig is not None or mt is not None
+
+    def _cleanup(self) -> None:
+        """Remove expired entries."""
+        now = time.monotonic()
+        for uid in [u for u, e in self.pending_ignore_removal.items() if now - e[0] > _SELECTION_TTL]:
+            del self.pending_ignore_removal[uid]
+        for uid in [u for u, e in self.pending_mute_removal.items() if now - e[0] > _SELECTION_TTL]:
+            del self.pending_mute_removal[uid]
 
 
 def manage_command(
@@ -228,7 +263,8 @@ def manage_ignores_container_callback(
 
     async def handler(callback: CallbackQuery) -> None:
         data = callback.data or ""
-        parts = data.split(":")
+        # Split with limit of 3 to handle container names containing colons
+        parts = data.split(":", 2)
         if len(parts) < 3:
             await callback.answer("Invalid callback data")
             return

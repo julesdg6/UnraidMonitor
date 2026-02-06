@@ -182,7 +182,18 @@ Respond with 2-3 sentences: What happened, the likely cause, and how to fix it. 
             user_id: Telegram user ID.
             context: DiagnosticContext to store.
         """
+        self._cleanup_stale()
         self._pending[user_id] = context
+
+    def _cleanup_stale(self) -> None:
+        """Remove expired entries from _pending."""
+        now = datetime.now()
+        stale = [
+            uid for uid, ctx in self._pending.items()
+            if ctx.created_at and (now - ctx.created_at).total_seconds() > self._context_expiry_seconds
+        ]
+        for uid in stale:
+            del self._pending[uid]
 
     def has_pending(self, user_id: int) -> bool:
         """Check if user has pending diagnostic context.

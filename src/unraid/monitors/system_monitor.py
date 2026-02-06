@@ -39,31 +39,19 @@ class UnraidSystemMonitor:
         self._on_alert = on_alert
         self._mute_manager = mute_manager
         self._running = False
-        self._task: asyncio.Task | None = None
         self._last_alert_times: dict[str, float] = {}
 
     async def start(self) -> None:
-        """Start the monitoring loop."""
+        """Start the monitoring loop.
+
+        Runs as a long-lived coroutine — wrap in asyncio.create_task() from main.
+        """
         if self._running:
             return
 
         self._running = True
-        self._task = asyncio.create_task(self._monitor_loop())
         logger.info("Unraid system monitor started")
 
-    async def stop(self) -> None:
-        """Stop the monitoring loop."""
-        self._running = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-        logger.info("Unraid system monitor stopped")
-
-    async def _monitor_loop(self) -> None:
-        """Main monitoring loop."""
         while self._running:
             try:
                 await self.check_once()
@@ -71,6 +59,11 @@ class UnraidSystemMonitor:
                 logger.error(f"Error in system monitor: {e}")
 
             await asyncio.sleep(self._config.poll_system_seconds)
+
+    async def stop(self) -> None:
+        """Stop the monitoring loop."""
+        self._running = False
+        logger.info("Unraid system monitor stopped")
 
     async def check_once(self) -> dict | None:
         """Check system metrics once and alert if needed.

@@ -1,3 +1,7 @@
+# Pin to a specific digest in production for reproducible builds:
+#   docker pull python:3.11-slim
+#   docker inspect --format='{{index .RepoDigests 0}}' python:3.11-slim
+# Then use: FROM python:3.11-slim@sha256:<digest>
 FROM python:3.11-slim
 
 WORKDIR /app

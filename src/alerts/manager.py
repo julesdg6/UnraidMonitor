@@ -126,10 +126,13 @@ Latest: `{display_error}`
 /logs {container_name} 50 - View last 50 lines"""
 
         # Create inline keyboard with quick action buttons
-        # Truncate error in callback data (max 64 bytes for callback_data)
+        # Telegram limits callback_data to 64 bytes (UTF-8 encoded)
         prefix = f"ignore_similar:{container_name}:"
-        max_error_len = 64 - len(prefix)
-        error_preview = error_line[:max_error_len] if len(error_line) > max_error_len else error_line
+        prefix_bytes = len(prefix.encode("utf-8"))
+        # Truncate error preview to fit within 64 bytes total
+        error_preview = error_line
+        while len(f"{prefix}{error_preview}".encode("utf-8")) > 64:
+            error_preview = error_preview[:-1]
 
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[

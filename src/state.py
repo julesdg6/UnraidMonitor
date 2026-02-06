@@ -26,6 +26,14 @@ class ContainerStateManager:
         with self._lock:
             return list(self._containers.values())
 
+    def get_all_names(self) -> set[str]:
+        with self._lock:
+            return set(self._containers.keys())
+
+    def remove(self, name: str) -> None:
+        with self._lock:
+            self._containers.pop(name, None)
+
     def find_by_name(self, partial: str) -> list[ContainerInfo]:
         partial_lower = partial.lower()
 

@@ -152,6 +152,13 @@ class DockerEventMonitor:
                 logger.debug(f"Error closing Docker client during reconnect: {e}")
 
         self._client = docker.DockerClient(base_url=self._docker_socket_path)
+
+        # Clear stale state before reloading to prevent ghost containers
+        current_names = {c.name for c in self._client.containers.list(all=True)}
+        for name in list(self.state_manager.get_all_names()):
+            if name not in current_names:
+                self.state_manager.remove(name)
+
         self.load_initial_state()
         logger.info("Docker reconnection successful")
 

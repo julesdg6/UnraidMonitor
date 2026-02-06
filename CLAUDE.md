@@ -104,11 +104,12 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 ## Environment Variables
 
 ```bash
-TELEGRAM_BOT_TOKEN=    # Required - from @BotFather
-ANTHROPIC_API_KEY=     # Optional - enables AI diagnostics, NL chat, smart ignore
-UNRAID_API_KEY=        # Optional - enables /server, /array, /disks commands
-CONFIG_PATH=           # Optional - defaults to config/config.yaml
-LOG_LEVEL=             # Optional - defaults to INFO
+TELEGRAM_BOT_TOKEN=           # Required - from @BotFather
+TELEGRAM_ALLOWED_USERS=       # Required - comma-separated Telegram user IDs (e.g., 123456,789012)
+ANTHROPIC_API_KEY=            # Optional - enables AI diagnostics, NL chat, smart ignore
+UNRAID_API_KEY=               # Optional - enables /server, /array, /disks commands
+CONFIG_PATH=                  # Optional - defaults to config/config.yaml
+LOG_LEVEL=                    # Optional - defaults to INFO
 ```
 
 ## Configuration

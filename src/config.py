@@ -437,6 +437,8 @@ log_watching:
     - "fatal"
     - "failed"
     - "critical"
+    - "panic"
+    - "traceback"
   ignore_patterns:
     - "DeprecationWarning"
     - "DEBUG"

@@ -1,5 +1,6 @@
 import re
 import logging
+import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Pattern to extract container name from error alert
 ALERT_PATTERN = re.compile(r"ERRORS IN[:\s]+(\w+)", re.IGNORECASE)
 
+# TTL for pending selections (10 minutes)
+_SELECTION_TTL = 600
+
 
 def extract_container_from_alert(text: str) -> str | None:
     """Extract container name from error alert message."""
@@ -25,20 +29,39 @@ class IgnoreSelectionState:
     """Shared state for ignore selections across handlers."""
 
     def __init__(self):
-        self.pending_selections: dict[int, tuple[str, list[str]]] = {}
+        self.pending_selections: dict[int, tuple[float, str, list[str]]] = {}
 
     def has_pending(self, user_id: int) -> bool:
-        return user_id in self.pending_selections
+        entry = self.pending_selections.get(user_id)
+        if entry is None:
+            return False
+        if time.monotonic() - entry[0] > _SELECTION_TTL:
+            del self.pending_selections[user_id]
+            return False
+        return True
 
     def get_pending(self, user_id: int) -> tuple[str, list[str]] | None:
-        return self.pending_selections.get(user_id)
+        entry = self.pending_selections.get(user_id)
+        if entry is None:
+            return None
+        if time.monotonic() - entry[0] > _SELECTION_TTL:
+            del self.pending_selections[user_id]
+            return None
+        return entry[1], entry[2]
 
     def set_pending(self, user_id: int, container: str, errors: list[str]) -> None:
-        self.pending_selections[user_id] = (container, errors)
+        self._cleanup()
+        self.pending_selections[user_id] = (time.monotonic(), container, errors)
 
     def clear_pending(self, user_id: int) -> None:
-        if user_id in self.pending_selections:
-            del self.pending_selections[user_id]
+        self.pending_selections.pop(user_id, None)
+
+    def _cleanup(self) -> None:
+        """Remove expired entries."""
+        now = time.monotonic()
+        expired = [uid for uid, entry in self.pending_selections.items() if now - entry[0] > _SELECTION_TTL]
+        for uid in expired:
+            del self.pending_selections[uid]
 
 
 def ignore_command(

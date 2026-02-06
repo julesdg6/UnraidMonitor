@@ -22,12 +22,20 @@ class ConfirmationManager:
 
         Replaces any existing pending confirmation for this user.
         """
+        self._cleanup_expired()
         expires_at = datetime.now() + timedelta(seconds=self.timeout_seconds)
         self._pending[user_id] = PendingConfirmation(
             action=action,
             container_name=container_name,
             expires_at=expires_at,
         )
+
+    def _cleanup_expired(self) -> None:
+        """Remove all expired entries."""
+        now = datetime.now()
+        expired = [uid for uid, p in self._pending.items() if now > p.expires_at]
+        for uid in expired:
+            del self._pending[uid]
 
     def get_pending(self, user_id: int) -> PendingConfirmation | None:
         """Get pending confirmation for user if not expired."""

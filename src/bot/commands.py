@@ -7,7 +7,7 @@ import docker
 
 from src.models import ContainerInfo
 from src.state import ContainerStateManager
-from src.utils.formatting import format_bytes, format_uptime
+from src.utils.formatting import format_bytes, format_uptime, escape_markdown
 from src.utils.sanitize import sanitize_logs_for_display
 from src.bot.resources_command import format_progress_bar
 
@@ -55,8 +55,8 @@ def format_status_summary(state: ContainerStateManager) -> str:
     summary = state.get_summary()
     all_containers = state.get_all()
 
-    stopped = [c.name for c in all_containers if c.status != "running"]
-    unhealthy = [c.name for c in all_containers if c.health == "unhealthy"]
+    stopped = [escape_markdown(c.name) for c in all_containers if c.status != "running"]
+    unhealthy = [escape_markdown(c.name) for c in all_containers if c.health == "unhealthy"]
 
     lines = [
         "📊 *Container Status*",
@@ -220,15 +220,21 @@ def logs_command(
             log_bytes = await asyncio.to_thread(docker_container.logs, tail=lines, timestamps=False)
             log_text = log_bytes.decode("utf-8", errors="replace")
 
+            # Account for header/footer when truncating to stay under Telegram 4096 char limit
+            safe_name = escape_markdown(container.name)
+            header = f"📋 *Logs: {safe_name}* (last {lines} lines)\n\n```\n"
+            footer = "\n```"
+            available = max_chars - len(header) - len(footer)
+
             # Truncate if too long for Telegram
-            if len(log_text) > max_chars:
-                log_text = log_text[-max_chars:]
+            if len(log_text) > available:
+                log_text = log_text[-available:]
                 log_text = "...(truncated)\n" + log_text
 
             # Sanitize to remove sensitive data before display
             log_text = sanitize_logs_for_display(log_text)
 
-            response = f"📋 *Logs: {container.name}* (last {lines} lines)\n\n```\n{log_text}\n```"
+            response = f"{header}{log_text}{footer}"
             await message.answer(response, parse_mode="Markdown")
 
         except docker.errors.NotFound:

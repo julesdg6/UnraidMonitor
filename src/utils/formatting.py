@@ -40,3 +40,17 @@ def format_uptime(seconds: int) -> str:
     if minutes > 0 or not parts:
         parts.append(f"{minutes}m")
     return " ".join(parts)
+
+
+def escape_markdown(text: str) -> str:
+    """Escape Telegram Markdown V1 special characters.
+
+    Args:
+        text: Raw text that may contain *, _, `, [ characters.
+
+    Returns:
+        Text with special characters escaped.
+    """
+    for ch in ("\\", "`", "*", "_", "["):
+        text = text.replace(ch, f"\\{ch}")
+    return text

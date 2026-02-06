@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import threading
 from enum import Enum, auto
 from typing import Callable, Awaitable
 
@@ -57,7 +56,6 @@ class MemoryMonitor:
         self._running = False
         self._pending_kill: str | None = None
         self._kill_cancel_event: asyncio.Event | None = None
-        self._lock = threading.Lock()  # Protects _pending_kill and _kill_cancel_event
 
     def is_enabled(self) -> bool:
         """Check if memory monitoring is enabled."""
@@ -137,8 +135,7 @@ class MemoryMonitor:
         """Handle critical state - prepare to kill."""
         next_kill = self._get_next_killable()
         if next_kill:
-            with self._lock:
-                self._pending_kill = next_kill
+            self._pending_kill = next_kill
             message = (
                 f"Memory critical ({percent:.0f}%). "
                 f"Will stop {next_kill} in {self._config.kill_delay_seconds} seconds "
@@ -151,13 +148,12 @@ class MemoryMonitor:
 
     async def _execute_kill_countdown(self) -> None:
         """Execute the kill countdown for pending container."""
-        with self._lock:
-            if not self._pending_kill:
-                return
-            container_name = self._pending_kill
-            # Create a new cancel event for this countdown
-            self._kill_cancel_event = asyncio.Event()
-            cancel_event = self._kill_cancel_event
+        if not self._pending_kill:
+            return
+        container_name = self._pending_kill
+        # Create a new cancel event for this countdown
+        self._kill_cancel_event = asyncio.Event()
+        cancel_event = self._kill_cancel_event
 
         # Wait for kill delay, but allow cancellation
         try:
@@ -168,20 +164,18 @@ class MemoryMonitor:
             )
             # If we get here, the event was set (cancelled)
             logger.info(f"Kill of {container_name} was cancelled")
-            with self._lock:
-                self._pending_kill = None
-                self._kill_cancel_event = None
+            self._pending_kill = None
+            self._kill_cancel_event = None
             return
         except asyncio.TimeoutError:
             # Timeout means no cancellation - proceed with kill check
             pass
 
-        with self._lock:
-            # Double-check we still have the same pending kill
-            if self._pending_kill != container_name:
-                logger.info(f"Pending kill changed, aborting kill of {container_name}")
-                self._kill_cancel_event = None
-                return
+        # Double-check we still have the same pending kill
+        if self._pending_kill != container_name:
+            logger.info(f"Pending kill changed, aborting kill of {container_name}")
+            self._kill_cancel_event = None
+            return
 
         # Check if memory is still critical
         if self.get_memory_percent() >= self._config.critical_threshold:
@@ -194,28 +188,19 @@ class MemoryMonitor:
         else:
             logger.info(f"Memory recovered, not killing {container_name}")
 
-        with self._lock:
-            self._pending_kill = None
-            self._kill_cancel_event = None
+        self._pending_kill = None
+        self._kill_cancel_event = None
 
     def cancel_pending_kill(self) -> bool:
-        """Cancel a pending kill. Returns True if there was one to cancel.
-
-        Thread-safe: Can be called from Telegram handler context.
-        """
-        with self._lock:
-            if self._pending_kill and self._kill_cancel_event:
-                self._kill_cancel_event.set()
-                return True
-            return False
+        """Cancel a pending kill. Returns True if there was one to cancel."""
+        if self._pending_kill and self._kill_cancel_event:
+            self._kill_cancel_event.set()
+            return True
+        return False
 
     def get_pending_kill(self) -> str | None:
-        """Get the name of the container pending kill, if any.
-
-        Thread-safe: Can be called from any context.
-        """
-        with self._lock:
-            return self._pending_kill
+        """Get the name of the container pending kill, if any."""
+        return self._pending_kill
 
     async def confirm_restart(self, name: str) -> bool:
         """Confirm restart of a killed container.

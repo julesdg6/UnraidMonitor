@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 class RateLimiter:
     """Rate limiter to prevent alert spam."""
 
+    # Remove entries older than this to prevent unbounded growth
+    _STALE_THRESHOLD = timedelta(hours=24)
+
     def __init__(self, cooldown_seconds: int = 900):
         self.cooldown_seconds = cooldown_seconds
         self._last_alert: dict[str, datetime] = {}
@@ -31,3 +34,19 @@ class RateLimiter:
     def get_suppressed_count(self, container_name: str) -> int:
         """Get count of suppressed alerts since last sent alert."""
         return self._suppressed_count.get(container_name, 0)
+
+    def cleanup_stale(self) -> int:
+        """Remove entries older than the stale threshold.
+
+        Returns:
+            Number of entries removed.
+        """
+        now = datetime.now()
+        stale_keys = [
+            key for key, ts in self._last_alert.items()
+            if now - ts > self._STALE_THRESHOLD
+        ]
+        for key in stale_keys:
+            del self._last_alert[key]
+            self._suppressed_count.pop(key, None)
+        return len(stale_keys)
