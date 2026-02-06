@@ -183,12 +183,46 @@ async def main() -> None:
 
         # Alert callback for Unraid
         async def on_server_alert(title: str, message: str, alert_type: str) -> None:
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
             chat_id = chat_id_store.get_chat_id()
-            if chat_id:
-                alert_text = f"SERVER ALERT: {title}\n\n{message}"
-                await bot.send_message(chat_id, alert_text)
-            else:
+            if not chat_id:
                 logger.warning("No chat ID yet, cannot send server alert")
+                return
+
+            alert_text = f"SERVER ALERT: {title}\n\n{message}"
+            keyboard = None
+
+            # Enhance memory alerts with per-container stats and kill buttons
+            if title == "Memory Critical" and resource_monitor is not None:
+                try:
+                    all_stats = await asyncio.wait_for(
+                        resource_monitor.get_all_stats(), timeout=5.0
+                    )
+                    # Sort by memory usage descending, take top 5
+                    all_stats.sort(key=lambda s: s.memory_bytes, reverse=True)
+                    top = all_stats[:5]
+
+                    if top:
+                        top_text = ", ".join(f"{s.name} ({s.memory_display})" for s in top)
+                        alert_text += f"\n\nTop memory: {top_text}"
+
+                        protected = set(config.protected_containers or [])
+                        buttons = []
+                        for s in top:
+                            if s.name not in protected:
+                                label = f"⏹ Stop {s.name} ({s.memory_display})"
+                                buttons.append(
+                                    [InlineKeyboardButton(
+                                        text=label, callback_data=f"mem_kill:{s.name}"
+                                    )]
+                                )
+                        if buttons:
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+                except Exception as e:
+                    logger.warning(f"Failed to get container stats for server alert: {e}")
+
+            await bot.send_message(chat_id, alert_text, reply_markup=keyboard)
 
         unraid_system_monitor = UnraidSystemMonitor(
             client=unraid_client,
@@ -280,11 +314,54 @@ async def main() -> None:
     memory_monitor = None
     memory_config = config.memory_management
     if memory_config.enabled:
-        async def on_memory_alert(title: str, message: str) -> None:
+        async def on_memory_alert(
+            title: str, message: str, alert_type: str, killable_names: list[str]
+        ) -> None:
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
             chat_id = chat_id_store.get_chat_id()
-            if chat_id:
-                alert_text = f"{'🔴' if 'Critical' in title else '⚠️'} *{title}*\n\n{message}"
-                await bot.send_message(chat_id, alert_text, parse_mode="Markdown")
+            if not chat_id:
+                return
+
+            emoji = "🔴" if "Critical" in title else "⚠️"
+            alert_text = f"{emoji} *{title}*\n\n{message}"
+            keyboard = None
+
+            if alert_type in ("warning", "critical") and killable_names:
+                # Try to get per-container memory stats for button labels
+                stats_by_name: dict[str, str] = {}
+                if resource_monitor is not None:
+                    try:
+                        all_stats = await asyncio.wait_for(
+                            resource_monitor.get_all_stats(), timeout=5.0
+                        )
+                        stats_by_name = {s.name: s.memory_display for s in all_stats}
+                    except Exception:
+                        pass  # Graceful degradation — buttons without memory info
+
+                if alert_type == "warning":
+                    buttons = []
+                    for name in killable_names:
+                        mem = stats_by_name.get(name, "")
+                        label = f"⏹ Stop {name}" + (f" ({mem})" if mem else "")
+                        buttons.append(
+                            [InlineKeyboardButton(text=label, callback_data=f"mem_kill:{name}")]
+                        )
+                    if buttons:
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+                elif alert_type == "critical":
+                    target = killable_names[0]
+                    mem = stats_by_name.get(target, "")
+                    kill_label = f"⏹ Kill {target} Now" + (f" ({mem})" if mem else "")
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=kill_label, callback_data=f"mem_kill:{target}")],
+                        [InlineKeyboardButton(text="❌ Cancel Auto-Kill", callback_data="mem_cancel_kill")],
+                    ])
+
+            await bot.send_message(
+                chat_id, alert_text, parse_mode="Markdown", reply_markup=keyboard
+            )
 
         async def on_ask_restart(container: str) -> None:
             chat_id = chat_id_store.get_chat_id()

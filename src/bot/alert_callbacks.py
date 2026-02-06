@@ -3,7 +3,7 @@
 import logging
 import re
 from datetime import timedelta
-from typing import Callable, Awaitable, Any
+from typing import Callable, Awaitable, Any, TYPE_CHECKING
 
 from aiogram.types import CallbackQuery
 from aiogram.exceptions import TelegramBadRequest
@@ -13,6 +13,9 @@ from src.state import ContainerStateManager
 from src.services.container_control import ContainerController
 from src.services.diagnostic import DiagnosticService
 from src.utils.sanitize import sanitize_logs_for_display
+
+if TYPE_CHECKING:
+    from src.monitors.memory_monitor import MemoryMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -305,5 +308,62 @@ def mute_callback(
 
         if callback.message:
             await callback.message.answer(f"🔕 Muted *{actual_name}* for {duration_str}", parse_mode="Markdown")
+
+    return handler
+
+
+def mem_kill_callback(
+    memory_monitor: "MemoryMonitor",
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for memory kill button callback handler."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        if not callback.data:
+            return
+
+        # Parse callback data: mem_kill:container_name
+        parts = callback.data.split(":", 1)
+        if len(parts) < 2:
+            await callback.answer("Invalid callback data")
+            return
+
+        container_name = parts[1]
+
+        if not _validate_container_name(container_name):
+            logger.warning(f"Invalid container name in mem_kill callback: {container_name[:50]}")
+            await callback.answer("Invalid container name")
+            return
+
+        await callback.answer(f"Stopping {container_name}...")
+
+        success = await memory_monitor.kill_container(container_name)
+
+        if callback.message:
+            if success:
+                await callback.message.answer(
+                    f"⏹ Stopped *{container_name}* to free memory.", parse_mode="Markdown"
+                )
+            else:
+                await callback.message.answer(
+                    f"❌ Failed to stop {container_name}. It may already be stopped."
+                )
+
+    return handler
+
+
+def mem_cancel_kill_callback(
+    memory_monitor: "MemoryMonitor",
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for cancel auto-kill button callback handler."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        cancelled = memory_monitor.cancel_pending_kill()
+
+        if cancelled:
+            await callback.answer("Auto-kill cancelled")
+            if callback.message:
+                await callback.message.answer("❌ Auto-kill cancelled.")
+        else:
+            await callback.answer("No pending kill to cancel")
 
     return handler

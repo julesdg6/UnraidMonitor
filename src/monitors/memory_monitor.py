@@ -30,7 +30,7 @@ class MemoryMonitor:
         self,
         docker_client: docker.DockerClient,
         config: MemoryConfig,
-        on_alert: Callable[[str, str], Awaitable[None]],
+        on_alert: Callable[[str, str, str, list[str]], Awaitable[None]],
         on_ask_restart: Callable[[str], Awaitable[None]],
         check_interval: int = 10,
         error_sleep: int = 30,
@@ -40,7 +40,9 @@ class MemoryMonitor:
         Args:
             docker_client: Docker client for container control.
             config: Memory management configuration.
-            on_alert: Callback for sending alerts (title, message).
+            on_alert: Callback for sending alerts (title, message, alert_type, killable_names).
+                alert_type is "warning", "critical", or "info".
+                killable_names lists containers relevant for kill buttons.
             on_ask_restart: Callback for asking to restart a container.
             check_interval: Seconds between memory checks.
             error_sleep: Seconds to sleep after an error.
@@ -129,7 +131,9 @@ class MemoryMonitor:
         """Handle warning state - notify user."""
         killable = ", ".join(self._config.killable_containers) or "none configured"
         message = f"Memory at {percent:.0f}%. Killable containers: {killable}"
-        await self._on_alert("Memory Warning", message)
+        await self._on_alert(
+            "Memory Warning", message, "warning", list(self._config.killable_containers)
+        )
 
     async def _handle_critical(self, percent: float) -> None:
         """Handle critical state - prepare to kill."""
@@ -139,12 +143,12 @@ class MemoryMonitor:
             message = (
                 f"Memory critical ({percent:.0f}%). "
                 f"Will stop {next_kill} in {self._config.kill_delay_seconds} seconds "
-                f"to protect priority services. Reply /cancel-kill to abort"
+                f"to protect priority services."
             )
-            await self._on_alert("Memory Critical", message)
+            await self._on_alert("Memory Critical", message, "critical", [next_kill])
         else:
             message = f"Memory critical ({percent:.0f}%) but no killable containers available!"
-            await self._on_alert("Memory Critical - No Action Available", message)
+            await self._on_alert("Memory Critical - No Action Available", message, "critical", [])
 
     async def _execute_kill_countdown(self) -> None:
         """Execute the kill countdown for pending container."""
@@ -183,7 +187,9 @@ class MemoryMonitor:
             percent = self.get_memory_percent()
             await self._on_alert(
                 "Container Stopped",
-                f"Stopped {container_name} to free memory. Memory now at {percent:.0f}%"
+                f"Stopped {container_name} to free memory. Memory now at {percent:.0f}%",
+                "info",
+                [],
             )
         else:
             logger.info(f"Memory recovered, not killing {container_name}")
@@ -197,6 +203,29 @@ class MemoryMonitor:
             self._kill_cancel_event.set()
             return True
         return False
+
+    async def kill_container(self, name: str) -> bool:
+        """Kill a container immediately (from button press).
+
+        Cancels any pending auto-kill first, then stops the named container.
+        Returns True if the container was stopped successfully.
+        """
+        # Cancel any pending auto-kill to avoid double-stopping
+        self.cancel_pending_kill()
+
+        try:
+            container = self._docker.containers.get(name)
+            await asyncio.to_thread(container.stop)
+            if name not in self._killed_containers:
+                self._killed_containers.append(name)
+            logger.info(f"Stopped container {name} via kill button")
+            return True
+        except docker.errors.NotFound:
+            logger.warning(f"Container {name} not found when trying to kill")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to kill container {name}: {e}")
+            return False
 
     def get_pending_kill(self) -> str | None:
         """Get the name of the container pending kill, if any."""

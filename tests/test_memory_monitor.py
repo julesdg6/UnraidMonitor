@@ -196,7 +196,10 @@ class TestStateMachine:
 
         assert monitor._state == MemoryState.WARNING
         mock_on_alert.assert_called_once()
-        assert "91" in mock_on_alert.call_args[0][1]
+        args = mock_on_alert.call_args[0]
+        assert "91" in args[1]  # message contains percentage
+        assert args[2] == "warning"  # alert_type
+        assert args[3] == ["bitmagnet", "obsidian"]  # killable_names
 
     @pytest.mark.asyncio
     @patch("src.monitors.memory_monitor.psutil")
@@ -218,6 +221,10 @@ class TestStateMachine:
 
         assert monitor._state == MemoryState.CRITICAL
         mock_on_alert.assert_called()
+        args = mock_on_alert.call_args[0]
+        assert args[2] == "critical"  # alert_type
+        # No killable containers running, so empty list
+        assert args[3] == []
 
     @pytest.mark.asyncio
     @patch("src.monitors.memory_monitor.psutil")

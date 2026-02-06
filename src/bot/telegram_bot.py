@@ -30,6 +30,8 @@ from src.bot.alert_callbacks import (
     logs_callback,
     diagnose_callback,
     mute_callback,
+    mem_kill_callback,
+    mem_cancel_kill_callback,
 )
 from src.bot.memory_commands import cancel_kill_command
 from src.bot.mute_command import mute_command, mutes_command, unmute_command
@@ -377,6 +379,17 @@ def register_commands(
             cancel_kill_command(memory_monitor),
             Command("cancel-kill"),
         )
+
+        # Register memory kill button callbacks
+        if memory_monitor is not None:
+            dp.callback_query.register(
+                mem_kill_callback(memory_monitor),
+                F.data.startswith("mem_kill:"),
+            )
+            dp.callback_query.register(
+                mem_cancel_kill_callback(memory_monitor),
+                F.data == "mem_cancel_kill",
+            )
 
         # Register /manage command and callbacks
         if ignore_manager is not None and mute_manager is not None:
