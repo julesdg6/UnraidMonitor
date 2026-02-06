@@ -4,12 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Unraid Server Monitor Bot - A Docker-based monitoring service for Unraid servers that:
-- Monitors Docker container health and events via the Docker socket
-- Parses container logs for errors/warnings with configurable filters
-- Uses Claude API to analyze issues and suggest fixes
-- Provides Telegram bot interface for alerts and interaction
-- Executes approved actions (restart containers, etc.)
+Unraid Server Monitor Bot (v0.7.2) - A Docker-based Telegram bot for monitoring Unraid servers. Monitors Docker containers (events, logs, resources) and Unraid server health (CPU, memory, disks, array, UPS). Uses Claude API for AI-powered diagnostics and natural language interaction. Sends alerts via Telegram with quick-action buttons.
 
 ## Commands
 
@@ -17,94 +12,111 @@ Unraid Server Monitor Bot - A Docker-based monitoring service for Unraid servers
 # Run the application
 python -m src.main
 
-# Run tests
+# Run tests (uses pytest-asyncio with auto mode)
 pytest tests/
-
-# Run a single test file
 pytest tests/test_<module>.py
-
-# Run with coverage
+pytest tests/test_<module>.py -k "test_name"
 pytest --cov=src tests/
 
-# Type checking
+# Type checking (strict mode, Python 3.11)
 mypy src/
 
-# Linting
+# Linting (line-length 100, target py311)
 ruff check src/
 
-# Build Docker image
+# Docker
 docker build -t unraid-monitor-bot .
-
-# Run with Docker Compose
 docker-compose up -d
 ```
 
 ## Architecture
 
-### Core Data Flow
+### Data Flow
 ```
-Docker Socket → Event/Health/Log Monitors → Event Queue → Claude Analysis → Telegram Bot → User
-                                                                                    ↓
-                                                                          Docker Actions
+Docker Socket ──→ DockerEventMonitor ──→ AlertManagerProxy ──→ Telegram Bot ──→ User
+                  LogWatcher ──────────→ (RateLimiter,       ↗                   ↓
+                  ResourceMonitor ─────→  MuteManager,      /              Docker Actions
+                                          IgnoreManager)   /
+Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
+                 ArrayMonitor ─────────→
 ```
 
-### Key Components
+### Startup & Wiring (`src/main.py`)
 
-**Monitors** (`src/monitors/`):
-- `docker_events.py` - Subscribes to Docker events via socket (die, start, health_status, oom)
-- `docker_health.py` - Periodic polling for container status, resource usage, restart counts
-- `log_watcher.py` - Streams container logs with error pattern filtering and rate limiting
+`main.py` is the composition root. It instantiates all components and wires them together:
+- `AlertManagerProxy` wraps `AlertManager` to lazily resolve the Telegram chat ID (set on first `/start` command)
+- Background tasks for each monitor run concurrently via `asyncio.create_task`
+- Telegram bot uses aiogram 3.x polling
+- Components are passed to bot command handlers via aiogram's dependency injection
+
+### Key Modules
+
+**Monitors** (`src/monitors/`) - Passive observers that emit alerts:
+- `docker_events.py` - Docker socket subscription (die, start, health_status, oom events)
+- `log_watcher.py` - Streams container logs, matches error patterns, applies ignore rules
+- `resource_monitor.py` - Periodic CPU/memory polling per container
+- `memory_monitor.py` - System-level memory pressure management (can kill containers)
+
+**Unraid** (`src/unraid/`) - Unraid server integration:
+- `client.py` - GraphQL API wrapper using `unraid-api` package
+- `monitors/system_monitor.py` - CPU temp, usage, memory with configurable thresholds
+- `monitors/array_monitor.py` - Disk health, array usage, temperature monitoring
+
+**Bot** (`src/bot/`) - Telegram command/callback handlers:
+- `telegram_bot.py` - Bot/dispatcher setup, handler registration
+- `commands.py` - `/status`, `/logs`, `/help`
+- `control_commands.py` - `/restart`, `/stop`, `/start`, `/pull` with confirmations
+- `diagnose_command.py` - `/diagnose` with AI-powered log analysis
+- `resources_command.py` - `/resources` with per-container stats
+- `unraid_commands.py` - `/server`, `/array`, `/disks`
+- `mute_command.py` - `/mute`, `/unmute`, `/mutes`
+- `ignore_command.py` - `/ignore`, `/ignores` (AI-generated patterns)
+- `manage_command.py` - `/manage` dashboard with inline keyboards
+- `alert_callbacks.py` - Quick-action button handlers on alert messages
+- `nl_handler.py` - Routes non-command text to NL processor
+
+**Services** (`src/services/`) - Business logic:
+- `nl_processor.py` - Natural language chat via Claude with tool use and conversation memory
+- `nl_tools.py` - Tool definitions (get status, read logs, restart) for Claude tool use
+- `container_control.py` - Safe container operations (name matching, protected list)
+- `diagnostic.py` - AI log analysis (brief/detailed modes)
+
+**Alerts** (`src/alerts/`) - Alert management layer:
+- `manager.py` + `AlertManagerProxy` (in main.py) - Format and send Telegram messages
+- `rate_limiter.py` - Deduplication with configurable cooldowns
+- `mute_manager.py`, `server_mute_manager.py`, `array_mute_manager.py` - Timed/permanent mutes (JSON persistence in `data/`)
+- `ignore_manager.py` - Regex-based error pattern ignoring (JSON persistence in `data/`)
+- `recent_errors.py` - Buffer for `/ignore` command's error selection
 
 **Analysis** (`src/analysis/`):
-- `claude_client.py` - Claude API integration with rate limiting and debouncing
+- `pattern_analyzer.py` - Uses Claude to generate smart ignore patterns from error examples
 
-**Bot** (`src/bot/`):
-- `telegram_bot.py` - aiogram 3.x handlers with conversation context
-- `commands.py` - Command implementations (/status, /logs, /restart, etc.)
-- `formatters.py` - Alert message formatting with emoji and quick actions
-- `nl_handler.py` - Routes non-command messages to NL processor
+### Patterns
 
-**Services** (`src/services/`):
-- `nl_processor.py` - Natural language processing with Claude API and conversation memory
-- `nl_tools.py` - Tool definitions and executor for NL queries (container status, logs, restart)
-- `container_control.py` - Container operations with safety features
-- `diagnostic.py` - AI-powered log analysis
-
-**Actions** (`src/actions/`):
-- `docker_actions.py` - Container control with safety features (confirmations, cooldowns, whitelists)
-
-**Alerts** (`src/alerts/`):
-- `manager.py` - Alert formatting and Telegram message sending
-- `mute_manager.py` - Container mute persistence (JSON-based)
-- `ignore_manager.py` - Error pattern ignore persistence (JSON-based)
-- `rate_limiter.py` - Alert deduplication and rate limiting
-
-### Async Pattern
-All components use async/await - Docker events, Telegram, and Claude API are handled concurrently. The event queue coordinates between monitors and the analysis engine.
+- **All async** - Every component uses async/await. Tests use `pytest-asyncio` with `asyncio_mode = "auto"`
+- **Partial name matching** - Container commands accept partial names (e.g., `/logs rad` matches `radarr`)
+- **Graceful degradation** - Bot works without `ANTHROPIC_API_KEY`; AI features just disable
+- **JSON persistence** - Mutes and ignores stored in `data/*.json` files
+- **Protected containers** - Listed in `config.yaml`, cannot be controlled via Telegram
+- **Confirmation prompts** - Destructive actions (restart, stop, pull) require button confirmation
+- **Europe/London timezone** - All displayed timestamps use this timezone
 
 ## Environment Variables
 
 ```bash
 TELEGRAM_BOT_TOKEN=    # Required - from @BotFather
-ANTHROPIC_API_KEY=     # Optional - for Claude analysis (basic alerts work without it)
-UNRAID_API_KEY=        # Optional - for Unraid server monitoring
+ANTHROPIC_API_KEY=     # Optional - enables AI diagnostics, NL chat, smart ignore
+UNRAID_API_KEY=        # Optional - enables /server, /array, /disks commands
 CONFIG_PATH=           # Optional - defaults to config/config.yaml
 LOG_LEVEL=             # Optional - defaults to INFO
 ```
 
 ## Configuration
 
-`config/config.yaml` controls:
-- Telegram allowed users whitelist
-- Watched/ignored containers
-- Log error patterns and ignore patterns
-- Claude API rate limits
-- Alert cooldown periods
-
-## Key Design Decisions
-
-- Docker socket mounted read-only for monitoring, but actions require write access
-- Graceful degradation: send basic alerts without analysis if Claude API unavailable
-- Partial container name matching for commands (e.g., `/logs rad` matches `radarr`)
-- Timestamps displayed in Europe/London timezone
-- Deduplication and rate limiting to prevent alert spam
+`config/config.yaml` - Auto-generated on first run with defaults. Key sections:
+- `ai` - Claude model names, token limits, NL processor settings
+- `log_watching` - Watched containers, error/ignore patterns, cooldown
+- `unraid` - Host, polling intervals, alert thresholds (CPU temp, disk temp, memory, etc.)
+- `protected_containers` / `ignored_containers` - Safety and visibility controls
+- `memory_management` - System memory pressure thresholds and kill policy
+- `resource_monitoring` - Per-container CPU/memory alert thresholds
