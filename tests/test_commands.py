@@ -54,16 +54,33 @@ async def test_status_command_shows_container_details():
     from src.bot.commands import status_command
     from src.state import ContainerStateManager
     from src.models import ContainerInfo
-    from datetime import datetime
+    from src.monitors.resource_monitor import ContainerStats
+    from datetime import datetime, timezone, timedelta
 
     state = ContainerStateManager()
+    started = datetime.now(timezone.utc) - timedelta(days=3, hours=14, minutes=22)
     state.update(ContainerInfo(
         "radarr", "running", "healthy",
         "linuxserver/radarr:latest",
-        datetime(2025, 1, 25, 10, 0, 0),
+        started,
     ))
 
-    handler = status_command(state)
+    # Mock resource monitor
+    mock_resource_monitor = MagicMock()
+    mock_resource_monitor.get_container_stats = AsyncMock(return_value=ContainerStats(
+        name="radarr",
+        cpu_percent=12.3,
+        memory_percent=45.2,
+        memory_bytes=1_288_490_189,
+        memory_limit=2_900_000_000,
+        net_rx_bytes=1_610_612_736,
+        net_tx_bytes=335_544_320,
+        block_read_bytes=2_254_857_830,
+        block_write_bytes=524_288_000,
+        pids=42,
+    ))
+
+    handler = status_command(state, mock_resource_monitor)
 
     message = MagicMock()
     message.text = "/status radarr"
@@ -75,6 +92,74 @@ async def test_status_command_shows_container_details():
     assert "radarr" in response
     assert "running" in response.lower()
     assert "healthy" in response.lower()
+    # Resource stats should be present
+    assert "Resources" in response
+    assert "12.3%" in response
+    assert "45.2%" in response
+    assert "Net I/O" in response
+    assert "Block I/O" in response
+    assert "PIDs: 42" in response
+    # Uptime should be present
+    assert "3d" in response
+    assert "14h" in response
+
+
+@pytest.mark.asyncio
+async def test_status_command_stopped_container_no_resources():
+    """Test that stopped containers don't show resource section."""
+    from src.bot.commands import status_command
+    from src.state import ContainerStateManager
+    from src.models import ContainerInfo
+
+    state = ContainerStateManager()
+    state.update(ContainerInfo("backup", "exited", None, "backup:latest", None))
+
+    mock_resource_monitor = MagicMock()
+    mock_resource_monitor.get_container_stats = AsyncMock()
+
+    handler = status_command(state, mock_resource_monitor)
+
+    message = MagicMock()
+    message.text = "/status backup"
+    message.answer = AsyncMock()
+
+    await handler(message)
+
+    response = message.answer.call_args[0][0]
+    assert "backup" in response
+    assert "exited" in response
+    assert "Resources" not in response
+    # Should not have called get_container_stats for stopped containers
+    mock_resource_monitor.get_container_stats.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_status_command_without_resource_monitor():
+    """Test graceful degradation when resource_monitor is None."""
+    from src.bot.commands import status_command
+    from src.state import ContainerStateManager
+    from src.models import ContainerInfo
+    from datetime import datetime, timezone
+
+    state = ContainerStateManager()
+    state.update(ContainerInfo(
+        "radarr", "running", "healthy",
+        "linuxserver/radarr:latest",
+        datetime(2025, 1, 25, 10, 0, 0, tzinfo=timezone.utc),
+    ))
+
+    handler = status_command(state)  # No resource_monitor
+
+    message = MagicMock()
+    message.text = "/status radarr"
+    message.answer = AsyncMock()
+
+    await handler(message)
+
+    response = message.answer.call_args[0][0]
+    assert "radarr" in response
+    assert "running" in response.lower()
+    assert "Resources" not in response
 
 
 @pytest.mark.asyncio

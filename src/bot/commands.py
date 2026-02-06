@@ -1,11 +1,19 @@
-from typing import Callable, Awaitable
+import logging
+from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message
 import docker
 
 from src.models import ContainerInfo
 from src.state import ContainerStateManager
+from src.utils.formatting import format_bytes, format_uptime
 from src.utils.sanitize import sanitize_logs_for_display
+from src.bot.resources_command import format_progress_bar
+
+if TYPE_CHECKING:
+    from src.monitors.resource_monitor import ResourceMonitor
+
+logger = logging.getLogger(__name__)
 
 
 HELP_TEXT = """📋 *Commands*
@@ -74,8 +82,11 @@ def format_status_summary(state: ContainerStateManager) -> str:
     return "\n".join(lines)
 
 
-def format_container_details(container: ContainerInfo) -> str:
-    """Format detailed container info."""
+async def format_container_details(
+    container: ContainerInfo,
+    resource_monitor: "ResourceMonitor | None" = None,
+) -> str:
+    """Format detailed container info with optional resource stats."""
     health_emoji = {
         "healthy": "✅",
         "unhealthy": "⚠️",
@@ -89,16 +100,54 @@ def format_container_details(container: ContainerInfo) -> str:
         "",
         f"Status: {status_emoji} {container.status}",
         f"Health: {health_emoji.get(container.health, '➖')} {container.health or 'no healthcheck'}",
-        f"Image: `{container.image}`",
     ]
+
+    # Show uptime for running containers
+    if container.status == "running" and container.uptime_seconds is not None:
+        lines.append(f"Uptime: {format_uptime(container.uptime_seconds)}")
+
+    lines.append(f"Image: `{container.image}`")
 
     if container.started_at:
         lines.append(f"Started: {container.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
 
+    # Add resource stats for running containers
+    if container.status == "running" and resource_monitor is not None:
+        try:
+            stats = await resource_monitor.get_container_stats(container.name)
+            if stats is not None:
+                cpu_bar = format_progress_bar(stats.cpu_percent)
+                mem_bar = format_progress_bar(stats.memory_percent)
+
+                lines.append("")
+                lines.append("📊 *Resources*")
+                lines.append(
+                    f"CPU:    {stats.cpu_percent:5.1f}% `{cpu_bar}`"
+                )
+                lines.append(
+                    f"Memory: {stats.memory_percent:5.1f}% `{mem_bar}` "
+                    f"({stats.memory_display} / {stats.memory_limit_display})"
+                )
+                lines.append(
+                    f"Net I/O: {format_bytes(stats.net_rx_bytes)} ↓ / "
+                    f"{format_bytes(stats.net_tx_bytes)} ↑"
+                )
+                lines.append(
+                    f"Block I/O: {format_bytes(stats.block_read_bytes)} read / "
+                    f"{format_bytes(stats.block_write_bytes)} write"
+                )
+                if stats.pids > 0:
+                    lines.append(f"PIDs: {stats.pids}")
+        except Exception as e:
+            logger.warning(f"Failed to get resource stats for {container.name}: {e}")
+
     return "\n".join(lines)
 
 
-def status_command(state: ContainerStateManager) -> Callable[[Message], Awaitable[None]]:
+def status_command(
+    state: ContainerStateManager,
+    resource_monitor: "ResourceMonitor | None" = None,
+) -> Callable[[Message], Awaitable[None]]:
     """Factory for /status command handler."""
     async def handler(message: Message) -> None:
         text = message.text or ""
@@ -115,7 +164,7 @@ def status_command(state: ContainerStateManager) -> Callable[[Message], Awaitabl
             if not matches:
                 response = f"❌ No container found matching '{query}'"
             elif len(matches) == 1:
-                response = format_container_details(matches[0])
+                response = await format_container_details(matches[0], resource_monitor)
             else:
                 names = ", ".join(m.name for m in matches)
                 response = f"Multiple matches found: {names}\n\n_Be more specific_"

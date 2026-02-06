@@ -178,6 +178,114 @@ def test_parse_container_stats_with_cache():
     assert result.memory_percent == 37.5
 
 
+def test_parse_container_stats_network_io():
+    """Test parsing network I/O from Docker stats."""
+    from src.monitors.resource_monitor import parse_container_stats
+
+    docker_stats = {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 100_000_000},
+            "system_cpu_usage": 1_000_000_000,
+            "online_cpus": 1,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 50_000_000},
+            "system_cpu_usage": 900_000_000,
+        },
+        "memory_stats": {"usage": 1_000_000_000, "limit": 4_000_000_000},
+        "networks": {
+            "eth0": {"rx_bytes": 1_500_000_000, "tx_bytes": 300_000_000},
+            "eth1": {"rx_bytes": 100_000_000, "tx_bytes": 20_000_000},
+        },
+    }
+
+    result = parse_container_stats("plex", docker_stats)
+
+    assert result.net_rx_bytes == 1_600_000_000
+    assert result.net_tx_bytes == 320_000_000
+
+
+def test_parse_container_stats_block_io():
+    """Test parsing block I/O from Docker stats."""
+    from src.monitors.resource_monitor import parse_container_stats
+
+    docker_stats = {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 100_000_000},
+            "system_cpu_usage": 1_000_000_000,
+            "online_cpus": 1,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 50_000_000},
+            "system_cpu_usage": 900_000_000,
+        },
+        "memory_stats": {"usage": 1_000_000_000, "limit": 4_000_000_000},
+        "blkio_stats": {
+            "io_service_bytes_recursive": [
+                {"major": 8, "minor": 0, "op": "Read", "value": 2_100_000_000},
+                {"major": 8, "minor": 0, "op": "Write", "value": 500_000_000},
+                {"major": 8, "minor": 0, "op": "Sync", "value": 0},
+                {"major": 8, "minor": 0, "op": "Async", "value": 0},
+                {"major": 8, "minor": 0, "op": "Total", "value": 2_600_000_000},
+            ],
+        },
+    }
+
+    result = parse_container_stats("plex", docker_stats)
+
+    assert result.block_read_bytes == 2_100_000_000
+    assert result.block_write_bytes == 500_000_000
+
+
+def test_parse_container_stats_pids():
+    """Test parsing PID count from Docker stats."""
+    from src.monitors.resource_monitor import parse_container_stats
+
+    docker_stats = {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 100_000_000},
+            "system_cpu_usage": 1_000_000_000,
+            "online_cpus": 1,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 50_000_000},
+            "system_cpu_usage": 900_000_000,
+        },
+        "memory_stats": {"usage": 1_000_000_000, "limit": 4_000_000_000},
+        "pids_stats": {"current": 42},
+    }
+
+    result = parse_container_stats("plex", docker_stats)
+
+    assert result.pids == 42
+
+
+def test_parse_container_stats_missing_network_and_blkio():
+    """Test that missing network/blkio sections default to zero."""
+    from src.monitors.resource_monitor import parse_container_stats
+
+    docker_stats = {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 100_000_000},
+            "system_cpu_usage": 1_000_000_000,
+            "online_cpus": 1,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 50_000_000},
+            "system_cpu_usage": 900_000_000,
+        },
+        "memory_stats": {"usage": 1_000_000_000, "limit": 4_000_000_000},
+    }
+
+    result = parse_container_stats("plex", docker_stats)
+
+    assert result.net_rx_bytes == 0
+    assert result.net_tx_bytes == 0
+    assert result.block_read_bytes == 0
+    assert result.block_write_bytes == 0
+    assert result.pids == 0
+
+
 def test_resource_monitor_init():
     """Test ResourceMonitor initialization."""
     from src.monitors.resource_monitor import ResourceMonitor

@@ -212,7 +212,7 @@ def register_commands(
     Returns tuple of (ConfirmationManager, DiagnosticService) if docker_client provided.
     """
     dp.message.register(help_command(state), Command("help"))
-    dp.message.register(status_command(state), Command("status"))
+    dp.message.register(status_command(state, resource_monitor), Command("status"))
 
     if docker_client:
         _log_max_lines = bot_config.log_max_lines if bot_config else 100

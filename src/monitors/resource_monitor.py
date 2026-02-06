@@ -26,6 +26,11 @@ class ContainerStats:
     memory_percent: float
     memory_bytes: int
     memory_limit: int
+    net_rx_bytes: int = 0
+    net_tx_bytes: int = 0
+    block_read_bytes: int = 0
+    block_write_bytes: int = 0
+    pids: int = 0
 
     @property
     def memory_display(self) -> str:
@@ -91,12 +96,39 @@ def parse_container_stats(name: str, stats: dict) -> ContainerStats:
 
     memory_percent = (memory_usage / memory_limit) * 100.0 if memory_limit > 0 else 0.0
 
+    # Parse network I/O
+    net_rx_bytes = 0
+    net_tx_bytes = 0
+    networks = stats.get("networks", {})
+    for iface_stats in networks.values():
+        net_rx_bytes += iface_stats.get("rx_bytes", 0)
+        net_tx_bytes += iface_stats.get("tx_bytes", 0)
+
+    # Parse block I/O
+    block_read_bytes = 0
+    block_write_bytes = 0
+    blkio_stats = stats.get("blkio_stats", {})
+    for entry in blkio_stats.get("io_service_bytes_recursive", None) or []:
+        op = entry.get("op", "").lower()
+        if op == "read":
+            block_read_bytes += entry.get("value", 0)
+        elif op == "write":
+            block_write_bytes += entry.get("value", 0)
+
+    # Parse PIDs
+    pids = stats.get("pids_stats", {}).get("current", 0) or 0
+
     return ContainerStats(
         name=name,
         cpu_percent=round(cpu_percent, 1),
         memory_percent=round(memory_percent, 1),
         memory_bytes=memory_usage,
         memory_limit=memory_limit,
+        net_rx_bytes=net_rx_bytes,
+        net_tx_bytes=net_tx_bytes,
+        block_read_bytes=block_read_bytes,
+        block_write_bytes=block_write_bytes,
+        pids=pids,
     )
 
 
