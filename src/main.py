@@ -575,19 +575,18 @@ async def main() -> None:
 
         async def on_wizard_complete() -> None:
             """Called when the wizard saves config.yaml for the first time."""
-            logger.info("Setup wizard complete -- loading config and starting monitors")
-            try:
-                config = AppConfig(settings)
-                await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
-            except Exception as exc:
-                logger.error(f"Failed to start monitoring after wizard: {exc}")
-                chat_id = chat_id_store.get_chat_id()
-                if chat_id:
-                    await bot.send_message(
-                        chat_id,
-                        f"Failed to start monitoring: {exc}\n\n"
-                        "Please check the logs and restart the bot.",
-                    )
+            logger.info("Setup wizard complete -- restarting to apply config")
+            chat_id = chat_id_store.get_chat_id()
+            if chat_id:
+                await bot.send_message(
+                    chat_id,
+                    "✅ Setup complete! Restarting to apply configuration...",
+                )
+            # Give Telegram a moment to deliver the message
+            await asyncio.sleep(1)
+            # Exit cleanly -- Docker restart policy will bring us back
+            # with the new config.yaml in place
+            raise SystemExit(0)
 
         register_setup_wizard(dp, wizard, on_complete=on_wizard_complete)
 
@@ -625,13 +624,15 @@ async def main() -> None:
 
             async def on_rerun_complete() -> None:
                 """Called when a /setup re-run saves updated config."""
-                logger.info("Setup wizard re-run complete -- config updated")
+                logger.info("Setup wizard re-run complete -- restarting to apply config")
                 chat_id = chat_id_store.get_chat_id()
                 if chat_id:
                     await bot.send_message(
                         chat_id,
-                        "Configuration updated. Restart the bot for changes to take full effect.",
+                        "✅ Configuration updated! Restarting to apply changes...",
                     )
+                await asyncio.sleep(1)
+                raise SystemExit(0)
 
             register_setup_wizard(dp, wizard, on_complete=on_rerun_complete, register_start=False)
 
