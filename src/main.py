@@ -2,10 +2,12 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 import anthropic
+import docker
 
-from src.config import Settings, AppConfig, generate_default_config
+from src.config import Settings, AppConfig
 from src.state import ContainerStateManager
 from src.monitors.docker_events import DockerEventMonitor
 from src.monitors.log_watcher import LogWatcher
@@ -18,7 +20,8 @@ from src.alerts.recent_errors import RecentErrorsBuffer
 from src.alerts.mute_manager import MuteManager
 from src.alerts.server_mute_manager import ServerMuteManager
 from src.alerts.array_mute_manager import ArrayMuteManager
-from src.bot.telegram_bot import create_bot, create_dispatcher, register_commands
+from src.bot.telegram_bot import create_bot, create_dispatcher, register_commands, register_setup_wizard
+from src.bot.setup_wizard import SetupWizard
 from src.analysis.pattern_analyzer import PatternAnalyzer
 from src.unraid.client import UnraidClientWrapper
 from src.unraid.monitors.system_monitor import UnraidSystemMonitor
@@ -94,23 +97,70 @@ class AlertManagerProxy:
         await self._send_alert("send_resource_alert", **kwargs)
 
 
-async def main() -> None:
-    # Check for first run and generate default config if needed
-    config_path = os.environ.get("CONFIG_PATH", "config/config.yaml")
-    first_run = generate_default_config(config_path)
-    if first_run:
-        logger.info(f"Created default config at {config_path}")
+# ---------------------------------------------------------------------------
+# Background task tracker -- used by start_monitoring and shutdown
+# ---------------------------------------------------------------------------
 
-    # Load configuration
-    try:
-        settings = Settings()
-        config = AppConfig(settings)
-    except Exception as e:
-        logger.error(f"Failed to load configuration: {e}")
-        sys.exit(1)
+class _BackgroundTasks:
+    """Holds references to all background tasks and stoppable components."""
 
+    def __init__(self) -> None:
+        self.monitor: DockerEventMonitor | None = None
+        self.log_watcher: LogWatcher | None = None
+        self.resource_monitor: ResourceMonitor | None = None
+        self.memory_monitor: MemoryMonitor | None = None
+        self.unraid_client: UnraidClientWrapper | None = None
+        self.unraid_system_monitor: UnraidSystemMonitor | None = None
+        self.unraid_array_monitor: ArrayMonitor | None = None
+        self._tasks: list[asyncio.Task] = []
+
+    def add_task(self, task: asyncio.Task) -> None:
+        self._tasks.append(task)
+
+    async def shutdown(self) -> None:
+        """Stop all monitors and cancel all tasks."""
+        if self.monitor:
+            self.monitor.stop()
+        if self.log_watcher:
+            self.log_watcher.stop()
+        if self.resource_monitor is not None:
+            self.resource_monitor.stop()
+        if self.memory_monitor is not None:
+            self.memory_monitor.stop()
+        if self.unraid_system_monitor:
+            await self.unraid_system_monitor.stop()
+        if self.unraid_array_monitor:
+            await self.unraid_array_monitor.stop()
+        for task in self._tasks:
+            task.cancel()
+        for task in self._tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        if self.unraid_client:
+            await self.unraid_client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# Monitor startup -- extracted so the wizard on_complete can call it
+# ---------------------------------------------------------------------------
+
+async def start_monitoring(
+    config: AppConfig,
+    settings: Settings,
+    bot,
+    dp,
+    chat_id_store: ChatIdStore,
+    bg: _BackgroundTasks,
+) -> None:
+    """Start all monitors and register bot commands.
+
+    This is called either directly on normal runs or by the wizard's
+    on_complete callback after the first-run setup finishes.
+    """
     logging.getLogger().setLevel(config.log_level)
-    logger.info("Configuration loaded")
+    logger.info("Configuration loaded -- starting monitors")
 
     # Load sub-configs
     ai_config = config.ai
@@ -135,8 +185,7 @@ async def main() -> None:
     # Initialize state manager
     state = ContainerStateManager()
 
-    # Initialize chat ID store and rate limiter
-    chat_id_store = ChatIdStore()
+    # Initialize rate limiter and alert helpers
     log_watching_config = config.log_watching
     rate_limiter = RateLimiter(cooldown_seconds=log_watching_config["cooldown_seconds"])
 
@@ -151,10 +200,6 @@ async def main() -> None:
 
     # Initialize mute manager
     mute_manager = MuteManager(json_path="data/mutes.json")
-
-    # Initialize Telegram bot
-    bot = create_bot(config.telegram_bot_token)
-    dp = create_dispatcher(config.telegram_allowed_users, chat_id_store=chat_id_store)
 
     # Create alert manager proxy
     alert_manager = AlertManagerProxy(bot, chat_id_store, error_display_max_chars=bot_config.error_display_max_chars)
@@ -181,7 +226,10 @@ async def main() -> None:
             use_ssl=unraid_config.use_ssl,
         )
 
-        # Alert callback for Unraid
+        # Alert callback for Unraid -- captures resource_monitor via closure
+        # (resource_monitor is defined later in this function)
+        resource_monitor_ref: list[ResourceMonitor | None] = [None]
+
         async def on_server_alert(title: str, message: str, alert_type: str) -> None:
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -194,10 +242,10 @@ async def main() -> None:
             keyboard = None
 
             # Enhance memory alerts with per-container stats and kill buttons
-            if title == "Memory Critical" and resource_monitor is not None:
+            if title == "Memory Critical" and resource_monitor_ref[0] is not None:
                 try:
                     all_stats = await asyncio.wait_for(
-                        resource_monitor.get_all_stats(), timeout=5.0
+                        resource_monitor_ref[0].get_all_stats(), timeout=5.0
                     )
                     # Sort by memory usage descending, take top 5
                     all_stats.sort(key=lambda s: s.memory_bytes, reverse=True)
@@ -260,6 +308,8 @@ async def main() -> None:
         logger.error(f"Failed to connect to Docker: {e}")
         sys.exit(1)
 
+    bg.monitor = monitor
+
     # Initialize log watcher
     async def on_log_error(container_name: str, error_line: str):
         """Handle log errors with rate limiting."""
@@ -295,6 +345,8 @@ async def main() -> None:
         logger.error(f"Failed to initialize log watcher: {e}")
         sys.exit(1)
 
+    bg.log_watcher = log_watcher
+
     # Initialize resource monitor if enabled
     resource_monitor = None
     resource_config = config.resource_monitoring
@@ -309,6 +361,12 @@ async def main() -> None:
         logger.info("Resource monitoring enabled")
     else:
         logger.info("Resource monitoring disabled")
+
+    bg.resource_monitor = resource_monitor
+
+    # Backfill the resource_monitor reference for server alert closure
+    if unraid_client:
+        resource_monitor_ref[0] = resource_monitor
 
     # Initialize memory monitor if enabled
     memory_monitor = None
@@ -378,6 +436,8 @@ async def main() -> None:
         )
         logger.info("Memory monitoring enabled")
 
+    bg.memory_monitor = memory_monitor
+
     # Create NL processor if enabled
     nl_processor = None
     if anthropic_client and monitor._client:
@@ -431,108 +491,149 @@ async def main() -> None:
         nl_controller = ContainerController(monitor._client, config.protected_containers)
         nl_processor._executor._controller = nl_controller
 
+    # Store Unraid references for shutdown
+    bg.unraid_client = unraid_client
+    bg.unraid_system_monitor = unraid_system_monitor
+    bg.unraid_array_monitor = unraid_array_monitor
+
     # Start Docker event monitor as background task
-    monitor_task = asyncio.create_task(monitor.start())
+    bg.add_task(asyncio.create_task(monitor.start()))
 
     # Start log watcher as background task
-    log_watcher_task = asyncio.create_task(log_watcher.start())
+    bg.add_task(asyncio.create_task(log_watcher.start()))
 
     # Start resource monitor as background task (if enabled)
-    resource_monitor_task = None
     if resource_monitor is not None:
-        resource_monitor_task = asyncio.create_task(resource_monitor.start())
+        bg.add_task(asyncio.create_task(resource_monitor.start()))
 
     # Start memory monitor as background task (if enabled)
-    memory_monitor_task = None
     if memory_monitor is not None:
-        memory_monitor_task = asyncio.create_task(memory_monitor.start())
+        bg.add_task(asyncio.create_task(memory_monitor.start()))
 
     # Connect to Unraid and start monitoring
-    unraid_monitor_task = None
-    unraid_array_monitor_task = None
     if unraid_client:
         try:
             await unraid_client.connect()
             if unraid_system_monitor:
-                unraid_monitor_task = asyncio.create_task(unraid_system_monitor.start())
+                bg.add_task(asyncio.create_task(unraid_system_monitor.start()))
                 logger.info("Unraid system monitoring started")
             if unraid_array_monitor:
-                unraid_array_monitor_task = asyncio.create_task(unraid_array_monitor.start())
+                bg.add_task(asyncio.create_task(unraid_array_monitor.start()))
                 logger.info("Unraid array monitoring started")
         except Exception as e:
             logger.error(f"Failed to connect to Unraid: {e}")
 
-    logger.info("Starting Telegram bot...")
+    logger.info("All monitors started")
 
-    # Send first-run welcome message if needed
-    if first_run:
-        async def send_welcome():
-            await asyncio.sleep(5)  # Wait for chat_id to be available
-            chat_id = chat_id_store.get_chat_id()
-            if chat_id:
-                await bot.send_message(
-                    chat_id,
-                    "👋 *First run!* Default config created.\n\n"
-                    "Edit `/app/config/config.yaml` to customize settings.\n"
-                    "Use /help to get started.",
-                    parse_mode="Markdown",
-                )
 
-        asyncio.create_task(send_welcome())
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
+async def main() -> None:
+    config_path = os.environ.get("CONFIG_PATH", "config/config.yaml")
+    first_run = not Path(config_path).exists()
+
+    # Settings always loads from env vars (no config.yaml needed)
     try:
-        # Run bot until shutdown (aiogram handles SIGINT/SIGTERM)
-        await dp.start_polling(bot)
-    finally:
-        logger.info("Shutting down...")
-        monitor.stop()
-        log_watcher.stop()
-        if resource_monitor is not None:
-            resource_monitor.stop()
-        monitor_task.cancel()
-        log_watcher_task.cancel()
-        if resource_monitor_task is not None:
-            resource_monitor_task.cancel()
+        settings = Settings()
+    except Exception as e:
+        logger.error(f"Failed to load settings from environment: {e}")
+        sys.exit(1)
+
+    # Create Telegram bot and dispatcher (needed for both paths)
+    bot = create_bot(settings.telegram_bot_token)
+    chat_id_store = ChatIdStore()
+    dp = create_dispatcher(settings.telegram_allowed_users, chat_id_store=chat_id_store)
+
+    bg = _BackgroundTasks()
+
+    # Optionally create Anthropic client for the wizard (from env vars)
+    anthropic_client = None
+    if settings.anthropic_api_key:
+        anthropic_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    if first_run:
+        # ---------------------------------------------------------------
+        # First run: launch wizard, defer all monitoring until it completes
+        # ---------------------------------------------------------------
+        logger.info("No config.yaml found -- starting setup wizard")
+
+        # Connect a Docker client for the wizard's container listing
         try:
-            await monitor_task
-        except asyncio.CancelledError:
-            pass
+            docker_client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
+        except Exception as e:
+            logger.error(f"Failed to connect to Docker for setup wizard: {e}")
+            sys.exit(1)
+
+        wizard = SetupWizard(
+            config_path=config_path,
+            docker_client=docker_client,
+            anthropic_client=anthropic_client,
+            unraid_api_key=settings.unraid_api_key,
+        )
+
+        async def on_wizard_complete() -> None:
+            """Called when the wizard saves config.yaml for the first time."""
+            logger.info("Setup wizard complete -- loading config and starting monitors")
+            try:
+                config = AppConfig(settings)
+            except Exception as exc:
+                logger.error(f"Failed to load configuration after wizard: {exc}")
+                return
+            await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
+
+        register_setup_wizard(dp, wizard, on_complete=on_wizard_complete)
+
+        logger.info("Starting Telegram bot (setup wizard mode)...")
         try:
-            await log_watcher_task
-        except asyncio.CancelledError:
-            pass
-        if resource_monitor_task is not None:
-            try:
-                await resource_monitor_task
-            except asyncio.CancelledError:
-                pass
-        if memory_monitor is not None:
-            memory_monitor.stop()
-        if memory_monitor_task is not None:
-            memory_monitor_task.cancel()
-            try:
-                await memory_monitor_task
-            except asyncio.CancelledError:
-                pass
-        if unraid_system_monitor:
-            await unraid_system_monitor.stop()
-        if unraid_array_monitor:
-            await unraid_array_monitor.stop()
-        if unraid_monitor_task:
-            unraid_monitor_task.cancel()
-            try:
-                await unraid_monitor_task
-            except asyncio.CancelledError:
-                pass
-        if unraid_array_monitor_task:
-            unraid_array_monitor_task.cancel()
-            try:
-                await unraid_array_monitor_task
-            except asyncio.CancelledError:
-                pass
-        if unraid_client:
-            await unraid_client.disconnect()
-        await bot.session.close()
+            await dp.start_polling(bot)
+        finally:
+            await bg.shutdown()
+            await bot.session.close()
+    else:
+        # ---------------------------------------------------------------
+        # Normal run: config.yaml exists, start everything immediately
+        # ---------------------------------------------------------------
+        try:
+            config = AppConfig(settings)
+        except Exception as e:
+            logger.error(f"Failed to load configuration: {e}")
+            sys.exit(1)
+
+        # Also register the wizard for /setup re-runs
+        try:
+            docker_client = docker.DockerClient(base_url=config.docker.socket_path)
+        except Exception as e:
+            logger.error(f"Failed to connect to Docker for setup wizard: {e}")
+            # Non-fatal for the wizard; proceed without it
+            docker_client = None
+
+        if docker_client is not None:
+            wizard = SetupWizard(
+                config_path=config_path,
+                docker_client=docker_client,
+                anthropic_client=anthropic_client,
+                unraid_api_key=settings.unraid_api_key,
+            )
+
+            async def on_rerun_complete() -> None:
+                """Called when a /setup re-run saves updated config."""
+                logger.info("Setup wizard re-run complete -- config updated")
+                # The updated config.yaml will be picked up on next restart.
+                # A full hot-reload of monitors is complex; log the change
+                # so the user knows to restart for full effect.
+
+            register_setup_wizard(dp, wizard, on_complete=on_rerun_complete)
+
+        await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
+
+        logger.info("Starting Telegram bot...")
+        try:
+            await dp.start_polling(bot)
+        finally:
+            await bg.shutdown()
+            await bot.session.close()
 
 
 if __name__ == "__main__":

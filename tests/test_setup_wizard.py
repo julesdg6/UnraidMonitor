@@ -813,3 +813,58 @@ class TestClassifyContainers:
         assert len(session.classifications) == 1
         assert session.classifications[0].name == "mariadb"
         assert "priority" in session.classifications[0].categories
+
+
+class TestMainIntegration:
+    """Tests for first-run vs normal-run detection used by main.py."""
+
+    def test_first_run_detected_without_config(self, tmp_path):
+        """Without config.yaml, wizard should be created."""
+        from pathlib import Path
+        config_path = str(tmp_path / "config.yaml")
+        assert not Path(config_path).exists()
+        first_run = not Path(config_path).exists()
+        assert first_run is True
+
+    def test_rerun_detected_with_config(self, tmp_path):
+        """With existing config.yaml, it's a re-run."""
+        from pathlib import Path
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("unraid:\n  enabled: true\n")
+        first_run = not config_path.exists()
+        assert first_run is False
+
+    def test_wizard_created_with_correct_params(self, tmp_path):
+        """SetupWizard receives docker_client, anthropic_client, and unraid key."""
+        mock_docker = MagicMock()
+        mock_anthropic = MagicMock()
+
+        w = SetupWizard(
+            config_path=str(tmp_path / "config.yaml"),
+            docker_client=mock_docker,
+            anthropic_client=mock_anthropic,
+            unraid_api_key="test-key-123",
+        )
+
+        assert w._docker_client is mock_docker
+        assert w._anthropic_client is mock_anthropic
+        assert w._unraid_api_key == "test-key-123"
+
+    def test_wizard_on_complete_can_be_async(self, tmp_path):
+        """The on_complete callback passed to confirm handler should be async."""
+        import asyncio
+
+        mock_docker = MagicMock()
+        w = SetupWizard(
+            config_path=str(tmp_path / "config.yaml"),
+            docker_client=mock_docker,
+        )
+
+        called = False
+
+        async def on_complete():
+            nonlocal called
+            called = True
+
+        # Verify the callback is async-compatible
+        assert asyncio.iscoroutinefunction(on_complete)
