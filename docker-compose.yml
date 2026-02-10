@@ -11,9 +11,9 @@ services:
         DOCKER_GID: ${DOCKER_GID:-281}
     container_name: unraid-monitor-bot
     restart: unless-stopped
-    # If DOCKER_GID doesn't work, uncomment this to run as root:
-    # user: root
     environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

@@ -2,6 +2,16 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.7.4] - 2026-02-10
+
+### Changed
+- **PUID/PGID entrypoint for Unraid permissions** - Container now starts as root and uses an entrypoint script to fix ownership of bind-mounted `/app/config` and `/app/data` directories to `PUID:PGID` (defaults to `99:100` = `nobody:users`), then drops privileges via `gosu`. Fixes root-owned appdata folders created by Community Apps on first install.
+
+### Added
+- `entrypoint.sh` - Privilege-drop entrypoint that sets directory ownership and runs as non-root user
+- `PUID` and `PGID` environment variables (default `99`/`100`) for configurable file ownership
+- `gosu` package in Docker image for secure privilege dropping
+
 ## [0.7.3] - 2026-02-06
 
 ### Security
