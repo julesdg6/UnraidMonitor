@@ -39,6 +39,7 @@ HELP_TEXT = """📋 *Commands*
 /setup • Re-run the setup wizard
 /cancel • Exit the setup wizard
 /manage • Dashboard with status, resources, ignores & mutes
+/health • Bot version, uptime & monitor status
 
 _Partial names work: /status rad → radarr_
 _Reply /diagnose to crash alerts for AI analysis_

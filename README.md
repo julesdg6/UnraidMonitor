@@ -325,6 +325,7 @@ unraid:
 | `/setup` | Re-run the setup wizard (merges with existing config) |
 | `/cancel` | Exit the setup wizard mid-flow |
 | `/manage` | Dashboard with quick action buttons |
+| `/health` | Bot version, uptime, and monitor status |
 | `/help` | Show help message |
 
 ### Natural Language Chat
@@ -354,6 +355,18 @@ All alerts include quick action buttons.
 Exit code: 137 (OOM killed)
 Image: linuxserver/radarr:latest
 Uptime: 2h 34m
+
+[🔄 Restart] [📋 Logs] [🔍 Diagnose]
+[🔕 Mute 1h] [🔕 Mute 24h]
+```
+
+### Restart Loop Alert
+```
+🔄🔴 RESTART LOOP: radarr
+
+Crashed 5 times in the last 10 minutes!
+Exit code: 137 (OOM killed)
+Image: linuxserver/radarr:latest
 
 [🔄 Restart] [📋 Logs] [🔍 Diagnose]
 [🔕 Mute 1h] [🔕 Mute 24h]

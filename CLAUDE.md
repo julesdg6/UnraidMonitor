@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Unraid Server Monitor Bot (v0.8.0) - A Docker-based Telegram bot for monitoring Unraid servers. Monitors Docker containers (events, logs, resources) and Unraid server health (CPU, memory, disks, array, UPS). Uses Claude API for AI-powered diagnostics and natural language interaction. Sends alerts via Telegram with quick-action buttons.
+Unraid Server Monitor Bot (v0.8.1) - A Docker-based Telegram bot for monitoring Unraid servers. Monitors Docker containers (events, logs, resources) and Unraid server health (CPU, memory, disks, array, UPS). Uses Claude API for AI-powered diagnostics and natural language interaction. Sends alerts via Telegram with quick-action buttons.
 
 ## Commands
 
@@ -24,8 +24,8 @@ mypy src/
 # Linting (line-length 100, target py311)
 ruff check src/
 
-# Docker
-docker build -t unraid-monitor-bot .
+# Docker (target is Unraid x86_64 -- always build for linux/amd64)
+docker buildx build --platform linux/amd64 -t dervish/unraidmonitorbot:latest --push .
 docker-compose up -d
 ```
 
@@ -54,7 +54,7 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 ### Key Modules
 
 **Monitors** (`src/monitors/`) - Passive observers that emit alerts:
-- `docker_events.py` - Docker socket subscription (die, start, health_status, oom events)
+- `docker_events.py` - Docker socket subscription (die, start, health_status, oom events) + `CrashTracker` for restart loop detection
 - `log_watcher.py` - Streams container logs, matches error patterns, applies ignore rules
 - `resource_monitor.py` - Periodic CPU/memory polling per container
 - `memory_monitor.py` - System-level memory pressure management (can kill containers)
@@ -76,6 +76,7 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - `manage_command.py` - `/manage` dashboard with inline keyboards
 - `alert_callbacks.py` - Quick-action button handlers on alert messages
 - `nl_handler.py` - Routes non-command text to NL processor
+- `health_command.py` - `/health` bot version, uptime, and monitor status
 - `setup_wizard.py` - Interactive first-run setup wizard and `/setup` re-run support
 
 **Services** (`src/services/`) - Business logic:

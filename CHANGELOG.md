@@ -2,6 +2,34 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.8.1] - 2026-02-10
+
+### Added
+- **Restart loop detection** - Detects containers crashing 5+ times in 10 minutes and sends escalated alerts with crash count, separate from normal rate-limited crash alerts
+- **`/health` command** - Shows bot version, uptime, all monitor statuses (running/stopped/disabled), Unraid connection state, and recent crash activity
+- **Startup notification** - Bot sends a message on startup with container count, watched count, and Unraid status
+
+### Fixed
+- **Concurrent NL requests** - Per-user `asyncio.Lock` prevents interleaved Claude API calls from corrupting conversation memory
+- **`signal.SIGALRM` crash on non-main thread** - Regex timeout for ignore patterns now uses daemon thread + `join(timeout)` instead of signals
+- **Image pull hangs forever** - `pull_and_recreate()` now has a 5-minute timeout on Docker image pulls
+- **Docker `load_initial_state()` blocking event loop** - Wrapped in `asyncio.to_thread()` on startup
+- **Stale rate limiter entries** - `cleanup_stale()` called at start of each resource monitor poll cycle
+- **Container names breaking Markdown** - Escaped underscores/special chars in `/status` and `/logs` multi-match responses
+- **YAML parse errors crash startup** - `load_yaml_config()` catches `yaml.YAMLError` and raises descriptive `ValueError`
+- **Unraid connection failure silent** - Now sends Telegram notification when Unraid connection fails on startup
+- **`os.execv` restart leaking polling** - `dp.stop_polling()` called before exec in wizard completion
+- **Concurrent wizard sessions corrupt state** - Only one user can run the setup wizard at a time
+- **SSL verification disabled insecurely** - Replaced `ssl=False` with proper `SSLContext` in wizard connection test
+- **Double signal handler shutdown** - Guard prevents re-entrant `_graceful_shutdown()` calls
+- **Pattern cache XOR collision** - Changed cache key from `id() ^ id()` to tuple `(id(), id())`
+- **`call_soon_threadsafe` crash during shutdown** - Wrapped with `RuntimeError` catch in log watcher threads
+- **`from_user` None crash in ignore handlers** - Early return guard for channel/anonymous messages
+- **Fire-and-forget startup task** - Background monitor task now tracked for graceful shutdown
+- **Log watcher unbounded queue** - Added `maxsize=10000` with safe-put that drops on overflow (log storm protection)
+- **Config `None` for empty YAML lists** - `ignored_containers` and `protected_containers` default to `[]` instead of `None`
+- **Atomic config writes** - `save_yaml_config()` uses `tempfile` + `os.replace()` to prevent corruption on crash
+
 ## [0.8.0] - 2026-02-10
 
 ### Added
