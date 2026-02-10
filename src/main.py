@@ -16,6 +16,7 @@ from src.monitors.memory_monitor import MemoryMonitor
 from src.monitors.resource_monitor import ResourceMonitor
 from src.alerts.manager import AlertManager, ChatIdStore
 from src.alerts.rate_limiter import RateLimiter
+from src.utils.telegram_retry import send_with_retry
 from src.alerts.ignore_manager import IgnoreManager
 from src.alerts.recent_errors import RecentErrorsBuffer
 from src.alerts.mute_manager import MuteManager
@@ -41,9 +42,13 @@ class AlertManagerProxy:
 
     Queues alerts if no chat ID is available yet, delivering them
     when the first /start command provides the chat ID.
+    Includes a simple send lock to prevent Telegram rate limit abuse
+    during alert storms.
     """
 
     MAX_QUEUED = 50
+    # Minimum delay between consecutive alert sends (seconds)
+    _SEND_DELAY = 0.1
 
     def __init__(self, bot, chat_id_store: ChatIdStore, error_display_max_chars: int = 200):
         self.bot = bot
@@ -52,6 +57,7 @@ class AlertManagerProxy:
         self._queued_alerts: list[tuple[str, dict]] = []
         self._cached_manager: AlertManager | None = None
         self._cached_chat_id: int | None = None
+        self._send_lock = asyncio.Lock()
 
     def _get_manager(self, chat_id: int) -> AlertManager:
         """Get or create a cached AlertManager for the given chat_id."""
@@ -61,14 +67,20 @@ class AlertManagerProxy:
         return self._cached_manager
 
     async def _send_alert(self, method_name: str, **kwargs):
-        """Generic alert sender that delegates to AlertManager."""
+        """Generic alert sender that delegates to AlertManager.
+
+        Uses a lock to serialize sends and a small delay between them,
+        preventing Telegram rate limit abuse during alert storms.
+        """
         chat_id = self.chat_id_store.get_chat_id()
         if chat_id:
-            # Flush any queued alerts first
-            if self._queued_alerts:
-                await self._flush_queue(chat_id)
-            manager = self._get_manager(chat_id)
-            await getattr(manager, method_name)(**kwargs)
+            async with self._send_lock:
+                # Flush any queued alerts first
+                if self._queued_alerts:
+                    await self._flush_queue(chat_id)
+                manager = self._get_manager(chat_id)
+                await getattr(manager, method_name)(**kwargs)
+                await asyncio.sleep(self._SEND_DELAY)
         else:
             if len(self._queued_alerts) < self.MAX_QUEUED:
                 self._queued_alerts.append((method_name, kwargs))
@@ -271,7 +283,9 @@ async def start_monitoring(
                 except Exception as e:
                     logger.warning(f"Failed to get container stats for server alert: {e}")
 
-            await bot.send_message(chat_id, alert_text, reply_markup=keyboard)
+            await send_with_retry(
+                bot.send_message, chat_id=chat_id, text=alert_text, reply_markup=keyboard
+            )
 
         unraid_system_monitor = UnraidSystemMonitor(
             client=unraid_client,
@@ -419,8 +433,9 @@ async def start_monitoring(
                         [InlineKeyboardButton(text="❌ Cancel Auto-Kill", callback_data="mem_cancel_kill")],
                     ])
 
-            await bot.send_message(
-                chat_id, alert_text, parse_mode="Markdown", reply_markup=keyboard
+            await send_with_retry(
+                bot.send_message,
+                chat_id=chat_id, text=alert_text, parse_mode="Markdown", reply_markup=keyboard,
             )
 
         async def on_ask_restart(container: str) -> None:
