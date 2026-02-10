@@ -353,7 +353,10 @@ class SetupWizard:
             killable_containers=killable,
         )
         if merge:
-            writer.merge(**kwargs)
+            writer.merge(
+                skip_unraid=session.unraid_host is None,
+                **kwargs,
+            )
         else:
             writer.write(**kwargs)
 
@@ -502,11 +505,10 @@ def create_start_handler(
                 )
 
                 if success:
-                    wizard.set_host(user_id, host)
-                    wizard.connection_result(user_id, True, found_port, found_ssl)
-                    scheme = "HTTPS" if found_ssl else "HTTP"
+                    # Don't update session with new port/ssl -- keep existing config as-is
+                    wizard.connection_result(user_id, True, port, use_ssl)
                     await message.answer(
-                        f"Connected to Unraid via {scheme} on port {found_port}.\n\n"
+                        "Connected to Unraid successfully.\n\n"
                         "Now scanning Docker containers..."
                     )
                     classifications = await wizard.classify_containers(user_id)

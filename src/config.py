@@ -428,11 +428,12 @@ class ConfigWriter:
         ignored_containers: list[str],
         priority_containers: list[str],
         killable_containers: list[str],
+        skip_unraid: bool = False,
     ) -> None:
         """Merge wizard results into an existing config.yaml.
 
-        Updates container roles and Unraid connection settings while
-        preserving all other values (thresholds, polling intervals, etc.).
+        Updates container roles and optionally Unraid connection settings
+        while preserving all other values (thresholds, polling intervals, etc.).
         """
         existing = load_yaml_config(str(self._path))
         if not existing:
@@ -456,14 +457,15 @@ class ConfigWriter:
         existing.setdefault("memory_management", {})["priority_containers"] = priority_containers
         existing.setdefault("memory_management", {})["killable_containers"] = killable_containers
 
-        # Unraid connection (always overwritten by wizard)
-        unraid_section = existing.setdefault("unraid", {})
-        unraid_enabled = unraid_host is not None
-        unraid_section["enabled"] = unraid_enabled
-        if unraid_enabled:
-            unraid_section["host"] = unraid_host
-        unraid_section["port"] = unraid_port
-        unraid_section["use_ssl"] = unraid_use_ssl
+        # Unraid connection (only update if user entered new details)
+        if not skip_unraid:
+            unraid_section = existing.setdefault("unraid", {})
+            unraid_enabled = unraid_host is not None
+            unraid_section["enabled"] = unraid_enabled
+            if unraid_enabled:
+                unraid_section["host"] = unraid_host
+            unraid_section["port"] = unraid_port
+            unraid_section["use_ssl"] = unraid_use_ssl
 
         self._write_yaml(existing)
 
