@@ -2,6 +2,24 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.8.0] - 2026-02-10
+
+### Added
+- **Telegram-based setup wizard** - On first run (no config.yaml), an interactive wizard guides users through setup via Telegram chat instead of generating a silent default config
+- **Container auto-classification** - Pattern matching identifies ~30 common container types (databases, media servers, download clients, etc.) and assigns them to categories (priority, protected, watched, killable, ignored)
+- **AI-assisted classification** - Unknown containers are classified by Claude Haiku when an Anthropic API key is available, with AI suggestions marked in the summary
+- **Unraid connection testing** - Wizard auto-detects HTTPS/HTTP and port for the Unraid server
+- **`/setup` command** - Re-run the setup wizard at any time; merges non-destructively with existing config (preserves thresholds and custom settings)
+- **`/cancel` command** - Exit the setup wizard mid-flow
+- `ContainerClassifier` service with pattern rules and batch AI classification
+- `ConfigWriter` with `write()` and `merge()` methods for config.yaml management
+- `SetupModeMiddleware` blocks non-wizard commands during setup
+- 78 new tests across 4 test files
+
+### Changed
+- **`main.py` refactored** - Extracted `start_monitoring()` function and `_BackgroundTasks` class for cleaner startup; first-run path defers all monitoring until wizard completes
+- Removed `generate_default_config()` call from startup (wizard replaces it)
+
 ## [0.7.4] - 2026-02-10
 
 ### Changed
