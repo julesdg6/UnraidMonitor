@@ -537,7 +537,7 @@ class ConfigWriter:
                 "containers": {},
             },
             "memory_management": {
-                "enabled": False,
+                "enabled": bool(killable_containers),
                 "warning_threshold": 90,
                 "critical_threshold": 95,
                 "safe_threshold": 80,
