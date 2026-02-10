@@ -9,12 +9,20 @@ All notable changes to UnraidMonitor will be documented in this file.
 - **Container auto-classification** - Pattern matching identifies ~30 common container types (databases, media servers, download clients, etc.) and assigns them to categories (priority, protected, watched, killable, ignored)
 - **AI-assisted classification** - Unknown containers are classified by Claude Haiku when an Anthropic API key is available, with AI suggestions marked in the summary
 - **Unraid connection testing** - Wizard auto-detects HTTPS/HTTP and port for the Unraid server
-- **`/setup` command** - Re-run the setup wizard at any time; merges non-destructively with existing config (preserves thresholds and custom settings)
+- **`/setup` command** - Re-run the setup wizard at any time; merges non-destructively with existing config (preserves thresholds, custom settings, and Unraid connection details)
 - **`/cancel` command** - Exit the setup wizard mid-flow
+- **Category descriptions** - Each adjust button in the wizard shows a description explaining what the category is for
+- **Auto-restart after wizard** - Bot automatically restarts via `os.execv` after setup completes (works regardless of Docker restart policy)
+- **Smart re-run behaviour** - `/setup` re-run tests existing Unraid connection and skips the IP prompt if it works; preserves existing container categories from config instead of re-classifying
 - `ContainerClassifier` service with pattern rules and batch AI classification
 - `ConfigWriter` with `write()` and `merge()` methods for config.yaml management
 - `SetupModeMiddleware` blocks non-wizard commands during setup
 - 78 new tests across 4 test files
+
+### Fixed
+- **ImageNotFound crash on startup** - Containers referencing removed Docker images (common after updates) caused crashes in event monitor, diagnostic service, container control, and wizard container listing
+- **Wizard connection test failures** - Added required `apollo-require-preflight` CSRF header, valid GraphQL query with leaf fields, and logging for connection test diagnostics
+- **`/setup` re-run overwrote Unraid settings** - Connection test tried HTTPS:443 first and overwrote working HTTP:80 config; now preserves existing connection settings when they work
 
 ### Changed
 - **`main.py` refactored** - Extracted `start_monitoring()` function and `_BackgroundTasks` class for cleaner startup; first-run path defers all monitoring until wizard completes
