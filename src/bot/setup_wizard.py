@@ -151,6 +151,11 @@ class SetupWizard:
         session = self._get_or_create_session(user_id)
         session.state = WizardState.COMPLETE
 
+    def cancel(self, user_id: int) -> None:
+        """Reset the wizard back to idle state."""
+        if user_id in self._sessions:
+            del self._sessions[user_id]
+
     # -- connection test --------------------------------------------------
 
     async def test_unraid_connection(
@@ -407,6 +412,28 @@ def create_start_handler(
     return handler
 
 
+def create_cancel_handler(
+    wizard: SetupWizard,
+) -> Callable[[Message], Awaitable[None]]:
+    """Handle /cancel command -- exits the wizard."""
+
+    async def handler(message: Message) -> None:
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
+
+        if not wizard.is_active(user_id):
+            await message.answer("No setup wizard is active.")
+            return
+
+        wizard.cancel(user_id)
+        await message.answer(
+            "Setup wizard cancelled. Use /setup to start again."
+        )
+
+    return handler
+
+
 def create_host_handler(
     wizard: SetupWizard,
 ) -> Callable[[Message], Awaitable[None]]:
@@ -612,7 +639,7 @@ class SetupModeMiddleware(BaseMiddleware):
     (for wizard buttons).
     """
 
-    _ALLOWED_COMMANDS = {"/help", "/setup"}
+    _ALLOWED_COMMANDS = {"/help", "/setup", "/cancel"}
 
     def __init__(self, wizard: SetupWizard) -> None:
         self._wizard = wizard

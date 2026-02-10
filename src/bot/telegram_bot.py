@@ -488,6 +488,7 @@ def register_setup_wizard(
         SetupModeMiddleware,
         WizardState,
         create_start_handler,
+        create_cancel_handler,
         create_host_handler,
         create_confirm_callback,
         create_toggle_callback,
@@ -502,6 +503,7 @@ def register_setup_wizard(
     if register_start:
         dp.message.register(create_start_handler(wizard), Command("start"))
     dp.message.register(create_start_handler(wizard), Command("setup"))
+    dp.message.register(create_cancel_handler(wizard), Command("cancel"))
 
     # Custom filter: only match text messages when wizard is awaiting host
     class AwaitingHostFilter(Filter):

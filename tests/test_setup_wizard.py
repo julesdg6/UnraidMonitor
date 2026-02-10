@@ -14,6 +14,7 @@ from src.bot.setup_wizard import (
     build_summary_keyboard,
     build_adjust_keyboard,
     create_start_handler,
+    create_cancel_handler,
     create_host_handler,
     create_confirm_callback,
     create_toggle_callback,
@@ -494,6 +495,48 @@ class TestWizardHandlers:
         assert session.state == WizardState.REVIEW_CONTAINERS
         assert session.adjusting_category is None
         callback.message.answer.assert_called_once()
+
+
+class TestCancelHandler:
+    @pytest.mark.asyncio
+    async def test_cancel_resets_wizard(self, wizard):
+        wizard.start(user_id=123)
+        assert wizard.is_active(123)
+
+        handler = create_cancel_handler(wizard)
+        message = AsyncMock()
+        message.from_user = MagicMock()
+        message.from_user.id = 123
+
+        await handler(message)
+
+        assert not wizard.is_active(123)
+        message.answer.assert_called_once()
+        assert "cancelled" in message.answer.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_cancel_when_not_active(self, wizard):
+        handler = create_cancel_handler(wizard)
+        message = AsyncMock()
+        message.from_user = MagicMock()
+        message.from_user.id = 123
+
+        await handler(message)
+
+        message.answer.assert_called_once()
+        assert "No setup wizard" in message.answer.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_middleware_allows_cancel_during_setup(self, wizard):
+        wizard.start(user_id=123)
+        middleware = SetupModeMiddleware(wizard)
+
+        message = _make_message(123, "/cancel")
+        inner_handler = AsyncMock()
+
+        await middleware(inner_handler, message, {})
+
+        inner_handler.assert_called_once()
 
 
 class TestDockerContainers:
