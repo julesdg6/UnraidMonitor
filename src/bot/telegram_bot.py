@@ -472,11 +472,17 @@ def register_setup_wizard(
     dp: Dispatcher,
     wizard: "SetupWizard",
     on_complete: Callable[[], Awaitable[None]] | None = None,
+    register_start: bool = True,
 ) -> None:
     """Register setup wizard handlers on the dispatcher.
 
     This adds the setup mode middleware (blocks non-wizard commands during
     setup) and registers all wizard-related message/callback handlers.
+
+    Args:
+        register_start: If True, also register /start to trigger the wizard.
+            Set to False on normal runs to avoid conflicting with the
+            container /start command registered by register_commands.
     """
     from src.bot.setup_wizard import (
         SetupModeMiddleware,
@@ -492,8 +498,9 @@ def register_setup_wizard(
     # Middleware blocks non-wizard commands while setup is active
     dp.message.middleware(SetupModeMiddleware(wizard))
 
-    # /start and /setup begin the wizard
-    dp.message.register(create_start_handler(wizard), Command("start"))
+    # /start triggers the wizard only on first run; /setup always available
+    if register_start:
+        dp.message.register(create_start_handler(wizard), Command("start"))
     dp.message.register(create_start_handler(wizard), Command("setup"))
 
     # Custom filter: only match text messages when wizard is awaiting host

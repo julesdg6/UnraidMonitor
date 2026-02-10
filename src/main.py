@@ -306,7 +306,7 @@ async def start_monitoring(
         monitor.load_initial_state()
     except Exception as e:
         logger.error(f"Failed to connect to Docker: {e}")
-        sys.exit(1)
+        raise
 
     bg.monitor = monitor
 
@@ -343,7 +343,7 @@ async def start_monitoring(
         log_watcher.connect()
     except Exception as e:
         logger.error(f"Failed to initialize log watcher: {e}")
-        sys.exit(1)
+        raise
 
     bg.log_watcher = log_watcher
 
@@ -578,10 +578,16 @@ async def main() -> None:
             logger.info("Setup wizard complete -- loading config and starting monitors")
             try:
                 config = AppConfig(settings)
+                await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
             except Exception as exc:
-                logger.error(f"Failed to load configuration after wizard: {exc}")
-                return
-            await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
+                logger.error(f"Failed to start monitoring after wizard: {exc}")
+                chat_id = chat_id_store.get_chat_id()
+                if chat_id:
+                    await bot.send_message(
+                        chat_id,
+                        f"Failed to start monitoring: {exc}\n\n"
+                        "Please check the logs and restart the bot.",
+                    )
 
         register_setup_wizard(dp, wizard, on_complete=on_wizard_complete)
 
@@ -620,11 +626,14 @@ async def main() -> None:
             async def on_rerun_complete() -> None:
                 """Called when a /setup re-run saves updated config."""
                 logger.info("Setup wizard re-run complete -- config updated")
-                # The updated config.yaml will be picked up on next restart.
-                # A full hot-reload of monitors is complex; log the change
-                # so the user knows to restart for full effect.
+                chat_id = chat_id_store.get_chat_id()
+                if chat_id:
+                    await bot.send_message(
+                        chat_id,
+                        "Configuration updated. Restart the bot for changes to take full effect.",
+                    )
 
-            register_setup_wizard(dp, wizard, on_complete=on_rerun_complete)
+            register_setup_wizard(dp, wizard, on_complete=on_rerun_complete, register_start=False)
 
         await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
 
