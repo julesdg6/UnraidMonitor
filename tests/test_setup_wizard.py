@@ -146,6 +146,29 @@ class TestFormatting:
         assert "mystery" in summary
         assert "Uncategorised" in summary
 
+    def test_format_shows_ai_markers(self):
+        classifications = [
+            ContainerClassification(
+                name="plex", image="img", categories={"watched"}, ai_suggested=True
+            ),
+            ContainerClassification(
+                name="mariadb", image="img", categories={"priority"}, ai_suggested=False
+            ),
+        ]
+        summary = format_classification_summary(classifications)
+        assert "plex \\*" in summary
+        assert "mariadb \\*" not in summary
+        assert "AI-suggested" in summary
+
+    def test_format_no_ai_markers_when_none_ai(self):
+        classifications = [
+            ContainerClassification(
+                name="plex", image="img", categories={"watched"}, ai_suggested=False
+            ),
+        ]
+        summary = format_classification_summary(classifications)
+        assert "AI-suggested" not in summary
+
     def test_build_summary_keyboard_has_adjust_buttons(self):
         keyboard = build_summary_keyboard()
         # 5 adjust buttons + 1 looks good = 6 rows
@@ -282,6 +305,37 @@ class TestWizardHandlers:
 
         assert wizard.get_state(123) == WizardState.COMPLETE
         on_complete.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_confirm_callback_uses_merge_when_config_exists(self, tmp_path):
+        """When config.yaml already exists, confirm should merge."""
+        config_path = str(tmp_path / "config.yaml")
+        # Create existing config
+        import yaml
+
+        with open(config_path, "w") as f:
+            yaml.dump({"log_watching": {"containers": ["old"]}}, f)
+
+        w = SetupWizard(
+            config_path=config_path,
+            docker_client=MagicMock(),
+        )
+        w.start(user_id=123)
+
+        handler = create_confirm_callback(w)
+        callback = AsyncMock()
+        callback.from_user = MagicMock()
+        callback.from_user.id = 123
+        callback.data = "setup:confirm"
+        callback.message = AsyncMock()
+
+        with patch.object(w, "save_config") as mock_save:
+            await handler(callback)
+            mock_save.assert_called_once_with(123, merge=True)
+
+        # Message should mention merge
+        msg_text = callback.message.answer.call_args[0][0]
+        assert "merged" in msg_text
 
     @pytest.mark.asyncio
     async def test_confirm_callback_without_on_complete(self, wizard):
@@ -718,7 +772,7 @@ class TestConnectionTest:
             async def __aexit__(self, *args):
                 pass
 
-            def get(self, url, **kwargs):
+            def post(self, url, **kwargs):
                 call_urls.append(url)
                 # First call (HTTPS) fails, second call (HTTP) succeeds
                 if "https" in url:

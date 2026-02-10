@@ -4,7 +4,9 @@ Guides users through Unraid connection, container classification,
 and config generation via an interactive Telegram conversation.
 """
 
+import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
@@ -167,14 +169,15 @@ class SetupWizard:
             url = f"{scheme}://{host}:{port}/graphql"
             try:
                 async with aiohttp.ClientSession() as session:
-                    headers = {"Authorization": f"Bearer {api_key}"}
-                    async with session.get(
+                    headers = {"x-api-key": api_key}
+                    async with session.post(
                         url,
                         headers=headers,
+                        json={"query": "{ info { os } }"},
                         timeout=aiohttp.ClientTimeout(total=10),
                         ssl=False if use_ssl else None,
                     ) as resp:
-                        if resp.status < 500:
+                        if resp.status == 200:
                             return (True, port, use_ssl)
             except Exception:
                 continue
@@ -205,7 +208,7 @@ class SetupWizard:
         self, user_id: int
     ) -> list[ContainerClassification]:
         """Fetch and classify containers, storing results in session."""
-        containers = self.get_docker_containers()
+        containers = await asyncio.to_thread(self.get_docker_containers)
         classifications = await self._classifier.classify_all(containers)
         session = self._get_or_create_session(user_id)
         session.classifications = classifications
@@ -265,11 +268,14 @@ def format_classification_summary(
     if not classifications:
         return "No containers found."
 
-    # Group containers by category
+    # Group containers by category, tracking AI-suggested ones
     groups: dict[str, list[str]] = {cat: [] for cat in VALID_CATEGORIES}
+    ai_names: set[str] = set()
     uncategorised: list[str] = []
 
     for c in classifications:
+        if c.ai_suggested:
+            ai_names.add(c.name)
         if not c.categories:
             uncategorised.append(c.name)
         else:
@@ -277,6 +283,7 @@ def format_classification_summary(
                 if cat in groups:
                     groups[cat].append(c.name)
 
+    has_ai = bool(ai_names)
     lines: list[str] = ["*Container Classifications*\n"]
     for cat in ["priority", "protected", "watched", "killable", "ignored"]:
         names = groups.get(cat, [])
@@ -286,14 +293,19 @@ def format_classification_summary(
         label = _CATEGORY_LABELS.get(cat, cat)
         lines.append(f"{emoji} *{label}*")
         for name in sorted(names):
-            lines.append(f"  - {name}")
+            suffix = " \\*" if name in ai_names else ""
+            lines.append(f"  - {name}{suffix}")
         lines.append("")
 
     if uncategorised:
         lines.append("*Uncategorised*")
         for name in sorted(uncategorised):
-            lines.append(f"  - {name}")
+            suffix = " \\*" if name in ai_names else ""
+            lines.append(f"  - {name}{suffix}")
         lines.append("")
+
+    if has_ai:
+        lines.append("_\\* = AI-suggested classification_")
 
     return "\n".join(lines)
 
@@ -448,12 +460,14 @@ def create_confirm_callback(
 
         await callback.answer("Saving configuration...")
 
-        wizard.save_config(user_id)
+        merge = os.path.exists(wizard._config_path)
+        wizard.save_config(user_id, merge=merge)
         wizard.confirm(user_id)
 
+        mode_label = "merged with existing" if merge else "saved"
         if callback.message:
             await callback.message.answer(
-                "Setup complete! Your configuration has been saved.\n\n"
+                f"Setup complete! Your configuration has been {mode_label}.\n\n"
                 "The bot is now monitoring your containers. "
                 "Use /help to see available commands."
             )
