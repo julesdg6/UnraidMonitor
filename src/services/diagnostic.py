@@ -109,9 +109,12 @@ class DiagnosticService:
             now = datetime.now(timezone.utc)
             uptime_seconds = int((now - started_at).total_seconds())
 
-        # Get image
-        image_tags = container.image.tags
-        image = image_tags[0] if image_tags else "unknown"
+        # Get image -- may have been removed after an update
+        try:
+            image_tags = container.image.tags
+            image = image_tags[0] if image_tags else "unknown"
+        except Exception:
+            image = container.attrs.get("Config", {}).get("Image", "unknown")
 
         return DiagnosticContext(
             container_name=container_name,

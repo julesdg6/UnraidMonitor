@@ -79,8 +79,12 @@ class ContainerController:
         """
         try:
             container = self.docker_client.containers.get(container_name)
-            image_name = container.image.tags[0] if container.image.tags else container.image.id
-            old_image_id = container.image.id
+            try:
+                image_name = container.image.tags[0] if container.image.tags else container.image.id
+                old_image_id = container.image.id
+            except docker.errors.ImageNotFound:
+                image_name = container.attrs.get("Config", {}).get("Image", "unknown")
+                old_image_id = None
 
             # Step 1: Pull latest image BEFORE touching the running container
             logger.info(f"Pulling image for {container_name}: {image_name}")

@@ -19,9 +19,12 @@ logger = logging.getLogger(__name__)
 
 def parse_container(container: Container) -> ContainerInfo:
     """Convert Docker SDK container to ContainerInfo."""
-    # Get image name
-    tags = container.image.tags
-    image = tags[0] if tags else container.image.id
+    # Get image name -- image may have been removed (e.g. after an update)
+    try:
+        tags = container.image.tags
+        image = tags[0] if tags else container.image.id
+    except docker.errors.ImageNotFound:
+        image = container.attrs.get("Config", {}).get("Image", "unknown")
 
     # Get health status if available
     state = container.attrs.get("State", {})
