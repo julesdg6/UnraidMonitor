@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Awaitable, TYPE_CHECKING
 
 import docker
@@ -15,6 +15,65 @@ if TYPE_CHECKING:
     from src.alerts.mute_manager import MuteManager
 
 logger = logging.getLogger(__name__)
+
+
+class CrashTracker:
+    """Tracks crash events per container to detect restart loops.
+
+    Records all crashes (regardless of mute/rate-limit status) and sends
+    an escalated "restart loop" alert when a container exceeds the crash
+    threshold within the time window.
+    """
+
+    LOOP_THRESHOLD = 5  # Crashes in window to trigger escalation
+    LOOP_WINDOW_SECONDS = 600  # 10-minute window
+    ESCALATION_COOLDOWN_SECONDS = 600  # Don't re-escalate within 10 min
+
+    def __init__(self) -> None:
+        self._crashes: dict[str, list[datetime]] = {}
+        self._last_escalation: dict[str, datetime] = {}
+
+    def record_crash(self, container_name: str) -> None:
+        """Record a crash event (called for ALL non-zero exit crashes)."""
+        now = datetime.now()
+        if container_name not in self._crashes:
+            self._crashes[container_name] = []
+        self._crashes[container_name].append(now)
+        # Trim events older than the window
+        cutoff = now - timedelta(seconds=self.LOOP_WINDOW_SECONDS)
+        self._crashes[container_name] = [
+            t for t in self._crashes[container_name] if t > cutoff
+        ]
+
+    def check_restart_loop(self, container_name: str) -> tuple[bool, int]:
+        """Check if container is in a restart loop.
+
+        Returns:
+            Tuple of (should_escalate, crash_count_in_window).
+        """
+        now = datetime.now()
+        cutoff = now - timedelta(seconds=self.LOOP_WINDOW_SECONDS)
+        recent = [t for t in self._crashes.get(container_name, []) if t > cutoff]
+        count = len(recent)
+
+        if count < self.LOOP_THRESHOLD:
+            return False, count
+
+        # Check escalation cooldown
+        last = self._last_escalation.get(container_name)
+        if last and (now - last).total_seconds() < self.ESCALATION_COOLDOWN_SECONDS:
+            return False, count
+
+        return True, count
+
+    def record_escalation(self, container_name: str) -> None:
+        """Record that an escalation alert was sent."""
+        self._last_escalation[container_name] = datetime.now()
+
+    def get_crash_count(self, container_name: str) -> int:
+        """Get recent crash count for a container."""
+        cutoff = datetime.now() - timedelta(seconds=self.LOOP_WINDOW_SECONDS)
+        return len([t for t in self._crashes.get(container_name, []) if t > cutoff])
 
 
 def parse_container(container: Container) -> ContainerInfo:
@@ -80,6 +139,7 @@ class DockerEventMonitor:
         )
         self._alert_task: asyncio.Task | None = None
         self._backoff_seconds = self.INITIAL_BACKOFF_SECONDS
+        self._crash_tracker = CrashTracker()
 
     def connect(self) -> None:
         """Connect to Docker socket."""
@@ -282,9 +342,30 @@ class DockerEventMonitor:
             logger.debug(f"Ignoring crash alert for ignored container: {container_name}")
             return
 
+        # Always track the crash for restart loop detection (even if muted/rate-limited)
+        self._crash_tracker.record_crash(container_name)
+
         # Check if muted
         if self.mute_manager and self.mute_manager.is_muted(container_name):
             logger.debug(f"Suppressed crash alert for muted container: {container_name}")
+            return
+
+        # Check for restart loop — escalated alert uses a separate rate key
+        should_escalate, crash_count = self._crash_tracker.check_restart_loop(container_name)
+        if should_escalate:
+            self._crash_tracker.record_escalation(container_name)
+            window_min = CrashTracker.LOOP_WINDOW_SECONDS // 60
+            logger.warning(
+                f"Restart loop detected: {container_name} crashed {crash_count} times "
+                f"in {window_min} minutes"
+            )
+            await self.alert_manager.send_crash_alert(
+                container_name=container_name,
+                exit_code=exit_code,
+                image=self._get_container_image(container_name),
+                uptime_seconds=self._get_container_uptime(container_name),
+                restart_loop_count=crash_count,
+            )
             return
 
         # Check rate limiter if available
@@ -295,16 +376,21 @@ class DockerEventMonitor:
                 return
             self.rate_limiter.record_alert(container_name)
 
-        # Get container info for image name and uptime
-        container_info = self.state_manager.get(container_name)
-        image = container_info.image if container_info else "unknown"
-        uptime_seconds = container_info.uptime_seconds if container_info else None
-
         logger.info(f"Container {container_name} crashed with exit code {exit_code}")
 
         await self.alert_manager.send_crash_alert(
             container_name=container_name,
             exit_code=exit_code,
-            image=image,
-            uptime_seconds=uptime_seconds,
+            image=self._get_container_image(container_name),
+            uptime_seconds=self._get_container_uptime(container_name),
         )
+
+    def _get_container_image(self, container_name: str) -> str:
+        """Get image name for a container from state manager."""
+        info = self.state_manager.get(container_name)
+        return info.image if info else "unknown"
+
+    def _get_container_uptime(self, container_name: str) -> int | None:
+        """Get uptime seconds for a container from state manager."""
+        info = self.state_manager.get(container_name)
+        return info.uptime_seconds if info else None

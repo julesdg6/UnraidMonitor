@@ -38,6 +38,7 @@ class AlertManager:
         exit_code: int,
         image: str,
         uptime_seconds: int | None = None,
+        restart_loop_count: int | None = None,
     ) -> None:
         """Send a container crash alert with quick action buttons."""
         uptime_str = format_uptime(uptime_seconds) if uptime_seconds else "unknown"
@@ -51,7 +52,14 @@ class AlertManager:
         elif exit_code == 139:
             exit_reason = " (segfault)"
 
-        text = f"""🔴 *CONTAINER CRASHED:* {container_name}
+        if restart_loop_count:
+            text = f"""🔄🔴 *RESTART LOOP:* {container_name}
+
+Crashed {restart_loop_count} times in the last 10 minutes!
+Exit code: {exit_code}{exit_reason}
+Image: `{image}`"""
+        else:
+            text = f"""🔴 *CONTAINER CRASHED:* {container_name}
 
 Exit code: {exit_code}{exit_reason}
 Image: `{image}`

@@ -513,6 +513,26 @@ async def start_monitoring(
     bg.unraid_system_monitor = unraid_system_monitor
     bg.unraid_array_monitor = unraid_array_monitor
 
+    # Register /health command with references to all monitors
+    from aiogram.filters import Command as AiogramCommand
+    from src.bot.health_command import health_command
+    from datetime import datetime as _dt, timezone as _tz
+
+    _start_time = _dt.now(_tz.utc)
+    dp.message.register(
+        health_command(
+            start_time=_start_time,
+            monitor=monitor,
+            log_watcher=log_watcher,
+            resource_monitor=resource_monitor,
+            memory_monitor=memory_monitor,
+            unraid_client=unraid_client,
+            unraid_system_monitor=unraid_system_monitor,
+            unraid_array_monitor=unraid_array_monitor,
+        ),
+        AiogramCommand("health"),
+    )
+
     # Start Docker event monitor as background task
     bg.add_task(asyncio.create_task(monitor.start()))
 
@@ -550,6 +570,24 @@ async def start_monitoring(
                 )
 
     logger.info("All monitors started")
+
+    # H6: Send startup notification
+    chat_id = chat_id_store.get_chat_id()
+    if chat_id:
+        container_count = len(state.get_all())
+        watched_count = len(log_watching_config.get("containers", []))
+        unraid_status = "connected" if (unraid_client and unraid_client.is_connected) else "disabled"
+        startup_msg = (
+            f"🟢 *Bot started*\n"
+            f"Tracking {container_count} containers, watching logs for {watched_count}\n"
+            f"Unraid: {unraid_status}"
+        )
+        try:
+            await send_with_retry(
+                bot.send_message, chat_id=chat_id, text=startup_msg, parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send startup notification: {e}")
 
 
 # ---------------------------------------------------------------------------
