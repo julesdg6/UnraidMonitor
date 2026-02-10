@@ -6,6 +6,7 @@ All notable changes to UnraidMonitor will be documented in this file.
 
 ### Changed
 - **PUID/PGID entrypoint for Unraid permissions** - Container now starts as root and uses an entrypoint script to fix ownership of bind-mounted `/app/config` and `/app/data` directories to `PUID:PGID` (defaults to `99:100` = `nobody:users`), then drops privileges via `gosu`. Fixes root-owned appdata folders created by Community Apps on first install.
+- **Permissive file creation** - Set `umask 0000` in entrypoint and added `os.fchmod(fd, 0o666)` to mute/ignore JSON writers so all created files (config.yaml, mute/ignore JSON) are `rw-rw-rw-` instead of owner-only
 
 ### Added
 - `entrypoint.sh` - Privilege-drop entrypoint that sets directory ownership and runs as non-root user
