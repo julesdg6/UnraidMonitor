@@ -378,6 +378,201 @@ class AppConfig:
         return MemoryConfig.from_dict(self._yaml_config.get("memory_management", {}))
 
 
+class ConfigWriter:
+    """Writes and merges wizard results into config.yaml.
+
+    Used by the setup wizard to create a fresh config or to update
+    container roles while preserving manually-tuned thresholds.
+    """
+
+    def __init__(self, config_path: str) -> None:
+        self._path = Path(config_path)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def write(
+        self,
+        *,
+        unraid_host: str | None,
+        unraid_port: int,
+        unraid_use_ssl: bool,
+        watched_containers: list[str],
+        protected_containers: list[str],
+        ignored_containers: list[str],
+        priority_containers: list[str],
+        killable_containers: list[str],
+    ) -> None:
+        """Write a fresh config.yaml from wizard results + defaults."""
+        config = self._build_config(
+            unraid_host=unraid_host,
+            unraid_port=unraid_port,
+            unraid_use_ssl=unraid_use_ssl,
+            watched_containers=watched_containers,
+            protected_containers=protected_containers,
+            ignored_containers=ignored_containers,
+            priority_containers=priority_containers,
+            killable_containers=killable_containers,
+        )
+        self._write_yaml(config)
+
+    def merge(
+        self,
+        *,
+        unraid_host: str | None,
+        unraid_port: int,
+        unraid_use_ssl: bool,
+        watched_containers: list[str],
+        protected_containers: list[str],
+        ignored_containers: list[str],
+        priority_containers: list[str],
+        killable_containers: list[str],
+    ) -> None:
+        """Merge wizard results into an existing config.yaml.
+
+        Updates container roles and Unraid connection settings while
+        preserving all other values (thresholds, polling intervals, etc.).
+        """
+        existing = load_yaml_config(str(self._path))
+        if not existing:
+            # No existing config -- fall back to a full write
+            self.write(
+                unraid_host=unraid_host,
+                unraid_port=unraid_port,
+                unraid_use_ssl=unraid_use_ssl,
+                watched_containers=watched_containers,
+                protected_containers=protected_containers,
+                ignored_containers=ignored_containers,
+                priority_containers=priority_containers,
+                killable_containers=killable_containers,
+            )
+            return
+
+        # Container roles (always overwritten by wizard)
+        existing.setdefault("log_watching", {})["containers"] = watched_containers
+        existing["protected_containers"] = protected_containers
+        existing["ignored_containers"] = ignored_containers
+        existing.setdefault("memory_management", {})["priority_containers"] = priority_containers
+        existing.setdefault("memory_management", {})["killable_containers"] = killable_containers
+
+        # Unraid connection (always overwritten by wizard)
+        unraid_section = existing.setdefault("unraid", {})
+        unraid_enabled = unraid_host is not None
+        unraid_section["enabled"] = unraid_enabled
+        if unraid_enabled:
+            unraid_section["host"] = unraid_host
+        unraid_section["port"] = unraid_port
+        unraid_section["use_ssl"] = unraid_use_ssl
+
+        self._write_yaml(existing)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_config(
+        self,
+        *,
+        unraid_host: str | None,
+        unraid_port: int,
+        unraid_use_ssl: bool,
+        watched_containers: list[str],
+        protected_containers: list[str],
+        ignored_containers: list[str],
+        priority_containers: list[str],
+        killable_containers: list[str],
+    ) -> dict[str, Any]:
+        """Build a complete config dict from wizard results + defaults."""
+        unraid_enabled = unraid_host is not None
+        return {
+            "ai": {
+                "models": {
+                    "pattern_analyzer": "claude-haiku-4-5-20251001",
+                    "nl_processor": "claude-sonnet-4-5-20250929",
+                    "diagnostic": "claude-haiku-4-5-20251001",
+                },
+                "max_tokens": {
+                    "pattern_analyzer": 500,
+                    "nl_processor": 1024,
+                    "diagnostic_brief": 300,
+                    "diagnostic_detail": 800,
+                },
+                "nl_processor": {
+                    "max_tool_iterations": 10,
+                    "max_conversation_exchanges": 5,
+                },
+                "pattern_analyzer_context_lines": 30,
+                "diagnostic_context_expiry_seconds": 600,
+            },
+            "bot": {
+                "confirmation_timeout_seconds": 60,
+                "log_display": {
+                    "max_lines": 100,
+                    "max_chars": 4000,
+                    "nl_max_chars": 3000,
+                    "diagnose_max_lines": 500,
+                },
+                "error_display_max_chars": 200,
+            },
+            "docker": {
+                "socket_path": "unix:///var/run/docker.sock",
+            },
+            "ignored_containers": ignored_containers,
+            "protected_containers": protected_containers,
+            "log_watching": {
+                "containers": watched_containers,
+                "error_patterns": list(DEFAULT_ERROR_PATTERNS),
+                "ignore_patterns": list(DEFAULT_IGNORE_PATTERNS),
+                "cooldown_seconds": 900,
+            },
+            "resource_monitoring": {
+                "enabled": True,
+                "poll_interval_seconds": 60,
+                "sustained_threshold_seconds": 120,
+                "defaults": {
+                    "cpu_percent": 80,
+                    "memory_percent": 85,
+                },
+                "containers": {},
+            },
+            "memory_management": {
+                "enabled": False,
+                "warning_threshold": 90,
+                "critical_threshold": 95,
+                "safe_threshold": 80,
+                "kill_delay_seconds": 60,
+                "stabilization_wait": 180,
+                "priority_containers": priority_containers,
+                "killable_containers": killable_containers,
+            },
+            "unraid": {
+                "enabled": unraid_enabled,
+                "host": unraid_host or "your-unraid-ip",
+                "port": unraid_port,
+                "use_ssl": unraid_use_ssl,
+                "verify_ssl": True,
+                "polling": {
+                    "system": 30,
+                    "array": 300,
+                },
+                "thresholds": {
+                    "cpu_temp": 80,
+                    "cpu_usage": 95,
+                    "memory_usage": 90,
+                    "disk_temp": 50,
+                    "array_usage": 85,
+                },
+            },
+        }
+
+    def _write_yaml(self, config: dict[str, Any]) -> None:
+        """Write config dict to the YAML file."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+
 DEFAULT_CONFIG_TEMPLATE = '''# Unraid Monitor Bot Configuration
 # Generated automatically on first run
 
