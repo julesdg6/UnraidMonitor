@@ -13,7 +13,7 @@ from src.services.diagnostic import DiagnosticService
 logger = logging.getLogger(__name__)
 
 # Pattern to extract container name from crash alert
-CRASH_ALERT_PATTERN = re.compile(r"\*CONTAINER CRASHED:\*\s+(\w+)")
+CRASH_ALERT_PATTERN = re.compile(r"\*CONTAINER CRASHED:\*\s+([\w.\-]+)")
 
 
 def _extract_container_from_reply(reply_message: Message) -> str | None:

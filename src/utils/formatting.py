@@ -4,10 +4,10 @@ import re
 
 # Patterns to extract container name from various alert types
 _ALERT_PATTERNS = [
-    re.compile(r"ERRORS IN[:\s]+(\w+)", re.IGNORECASE),
-    re.compile(r"CRASHED[:\s]+(\w+)", re.IGNORECASE),
-    re.compile(r"HIGH .+ USAGE[:\s]+(\w+)", re.IGNORECASE),
-    re.compile(r"Container[:\s]+(\w+)", re.IGNORECASE),
+    re.compile(r"ERRORS IN[:\s]+([\w.\-]+)", re.IGNORECASE),
+    re.compile(r"CRASHED[:\s]+([\w.\-]+)", re.IGNORECASE),
+    re.compile(r"HIGH .+ USAGE[:\s]+([\w.\-]+)", re.IGNORECASE),
+    re.compile(r"Container[:\s]+([\w.\-]+)", re.IGNORECASE),
 ]
 
 

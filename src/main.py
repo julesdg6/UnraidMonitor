@@ -321,12 +321,13 @@ async def start_monitoring(
 
         if rate_limiter.should_alert(container_name):
             suppressed = rate_limiter.get_suppressed_count(container_name)
+            # Record alert BEFORE the await to prevent TOCTOU duplicate alerts
+            rate_limiter.record_alert(container_name)
             await alert_manager.send_log_error_alert(
                 container_name=container_name,
                 error_line=error_line,
                 suppressed_count=suppressed,
             )
-            rate_limiter.record_alert(container_name)
         else:
             rate_limiter.record_suppressed(container_name)
 

@@ -1,5 +1,6 @@
 """Callback handlers for alert action buttons."""
 
+import asyncio
 import logging
 import re
 from datetime import timedelta
@@ -136,8 +137,12 @@ def logs_callback(
         await callback.answer(f"Fetching logs for {actual_name}...")
 
         try:
-            docker_container = docker_client.containers.get(actual_name)
-            log_bytes = docker_container.logs(tail=lines, timestamps=False)
+            docker_container = await asyncio.to_thread(
+                docker_client.containers.get, actual_name
+            )
+            log_bytes = await asyncio.to_thread(
+                docker_container.logs, tail=lines, timestamps=False
+            )
             log_text = log_bytes.decode("utf-8", errors="replace")
 
             # Truncate if too long for Telegram

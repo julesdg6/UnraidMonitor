@@ -93,6 +93,7 @@ class ContainerController:
             # Step 2: Save full container config while still running
             attrs = container.attrs
             run_config = self._extract_run_config(attrs)
+            secondary_networks = self._get_secondary_networks(attrs)
 
             # Step 3: Stop and remove old container
             await asyncio.to_thread(container.stop)
@@ -107,6 +108,22 @@ class ContainerController:
                     detach=True,
                     **run_config,
                 )
+                # Reconnect secondary networks
+                if secondary_networks:
+                    new_container = await asyncio.to_thread(
+                        self.docker_client.containers.get, container_name
+                    )
+                    for net_name, endpoint in secondary_networks.items():
+                        try:
+                            network = self.docker_client.networks.get(net_name)
+                            await asyncio.to_thread(
+                                network.connect, new_container, **endpoint
+                            )
+                        except Exception as net_err:
+                            logger.warning(
+                                f"Failed to reconnect {container_name} to network {net_name}: {net_err}"
+                            )
+
                 logger.info(f"Recreated container: {container_name}")
                 return f"✅ {container_name} updated (pulled {image_name} and recreated)"
 
@@ -116,10 +133,12 @@ class ContainerController:
                     f"Failed to recreate {container_name} with new image: {recreate_err}",
                     exc_info=True,
                 )
+                # Use old_image_id if available, fall back to image_name
+                rollback_image = old_image_id or image_name
                 try:
                     await asyncio.to_thread(
                         self.docker_client.containers.run,
-                        old_image_id,
+                        rollback_image,
                         name=container_name,
                         detach=True,
                         **run_config,
@@ -144,6 +163,33 @@ class ContainerController:
         except Exception as e:
             logger.error(f"Failed to pull and recreate {container_name}: {e}", exc_info=True)
             return f"❌ Failed to update {container_name}. Check logs for details."
+
+    @staticmethod
+    def _get_secondary_networks(attrs: dict) -> dict[str, dict]:
+        """Extract secondary network connections (excluding the primary NetworkMode).
+
+        Returns a dict of network_name -> endpoint_config for networks that need
+        to be reconnected after container creation (since containers.run only
+        connects the primary network).
+        """
+        host_config = attrs.get("HostConfig", {})
+        primary_network = host_config.get("NetworkMode", "")
+
+        networks = attrs.get("NetworkSettings", {}).get("Networks", {})
+        secondary = {}
+        for net_name, net_config in networks.items():
+            if net_name == primary_network:
+                continue
+            # Extract reconnection-relevant config
+            endpoint = {}
+            if net_config.get("IPAMConfig"):
+                endpoint["IPAMConfig"] = net_config["IPAMConfig"]
+            if net_config.get("Aliases"):
+                endpoint["Aliases"] = net_config["Aliases"]
+            if net_config.get("Links"):
+                endpoint["Links"] = net_config["Links"]
+            secondary[net_name] = endpoint
+        return secondary
 
     def _extract_run_config(self, attrs: dict) -> dict:
         """Extract comprehensive run configuration from container attributes.
