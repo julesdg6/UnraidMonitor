@@ -174,7 +174,11 @@ class SetupWizard:
             url = f"{scheme}://{host}:{port}/graphql"
             try:
                 async with aiohttp.ClientSession() as session:
-                    headers = {"x-api-key": api_key}
+                    headers = {
+                        "x-api-key": api_key,
+                        "Content-Type": "application/json",
+                        "apollo-require-preflight": "true",
+                    }
                     async with session.post(
                         url,
                         headers=headers,
