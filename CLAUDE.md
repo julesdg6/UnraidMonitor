@@ -44,6 +44,8 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 ### Startup & Wiring (`src/main.py`)
 
 `main.py` is the composition root. It instantiates all components and wires them together:
+- **First-run path:** If no `config.yaml` exists, starts the setup wizard which guides users through Unraid connection and container classification via Telegram, then restarts via `os.execv`
+- **Normal path:** Loads config and starts all monitors immediately
 - `AlertManagerProxy` wraps `AlertManager` to lazily resolve the Telegram chat ID (set on first `/start` command)
 - Background tasks for each monitor run concurrently via `asyncio.create_task`
 - Telegram bot uses aiogram 3.x polling
@@ -74,11 +76,13 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - `manage_command.py` - `/manage` dashboard with inline keyboards
 - `alert_callbacks.py` - Quick-action button handlers on alert messages
 - `nl_handler.py` - Routes non-command text to NL processor
+- `setup_wizard.py` - Interactive first-run setup wizard and `/setup` re-run support
 
 **Services** (`src/services/`) - Business logic:
 - `nl_processor.py` - Natural language chat via Claude with tool use and conversation memory
 - `nl_tools.py` - Tool definitions (get status, read logs, restart) for Claude tool use
 - `container_control.py` - Safe container operations (name matching, protected list)
+- `container_classifier.py` - Pattern + AI classification of containers into categories
 - `diagnostic.py` - AI log analysis (brief/detailed modes)
 
 **Alerts** (`src/alerts/`) - Alert management layer:
@@ -114,7 +118,7 @@ LOG_LEVEL=                    # Optional - defaults to INFO
 
 ## Configuration
 
-`config/config.yaml` - Auto-generated on first run with defaults. Key sections:
+`config/config.yaml` - Created by the setup wizard on first run (or via `/setup`). Key sections:
 - `ai` - Claude model names, token limits, NL processor settings
 - `log_watching` - Watched containers, error/ignore patterns, cooldown
 - `unraid` - Host, polling intervals, alert thresholds (CPU temp, disk temp, memory, etc.)

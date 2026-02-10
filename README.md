@@ -4,6 +4,7 @@ A Telegram bot for monitoring Docker containers and Unraid servers. Get real-tim
 
 ## Features
 
+- **Interactive Setup Wizard** - Guided first-run setup via Telegram with auto-classification of containers
 - **Container Monitoring** - Status, health checks, and crash detection
 - **Resource Alerts** - CPU/memory usage with configurable thresholds
 - **Log Watching** - Automatic alerts when errors appear in container logs
@@ -51,12 +52,16 @@ The easiest way to install on Unraid.
 
 3. **Start the container**
 
-4. **Message your bot** on Telegram - send `/help` to verify it's working
+4. **Message your bot** on Telegram - send `/start` to begin the setup wizard
+   - The wizard will guide you through connecting to your Unraid server
+   - It auto-classifies your containers into categories (priority, protected, watched, killable, ignored)
+   - When an Anthropic API key is configured, AI assists with classifying unknown containers
+   - Review and adjust the categories, then confirm to save
+   - The bot restarts automatically and begins monitoring
 
-5. **Configure features** (optional)
-   - Edit `/mnt/user/appdata/unraid-monitor/config/config.yaml`
-   - See [Configuration](#configuration) for options
-   - Restart the container to apply changes
+5. **Re-configure anytime** (optional)
+   - Send `/setup` to re-run the wizard (merges non-destructively with existing config)
+   - Or edit `/mnt/user/appdata/unraid-monitor/config/config.yaml` directly and restart
 
 ---
 
@@ -116,7 +121,7 @@ Go to **Docker** → **Add Container** and configure:
 
 #### Step 4: Start and verify
 
-Start the container and check the logs for any errors. Message your bot on Telegram with `/help`.
+Start the container and check the logs for any errors. Message your bot on Telegram with `/start` to begin the interactive setup wizard.
 
 ---
 
@@ -159,7 +164,7 @@ Required for Unraid server monitoring (CPU, memory, temps, array status).
 
 ## Configuration
 
-Configuration is stored in `config/config.yaml`. A default file is created on first run.
+Configuration is stored in `config/config.yaml`. On first run, the interactive setup wizard creates this file. You can also run `/setup` anytime to reconfigure.
 
 **Location:**
 - Unraid: `/mnt/user/appdata/unraid-monitor/config/config.yaml`
@@ -313,10 +318,12 @@ unraid:
 
 **Duration formats:** `30m`, `2h`, `1d`, `1w`
 
-### Quick Access
+### Setup & Management
 
 | Command | Description |
 |---------|-------------|
+| `/setup` | Re-run the setup wizard (merges with existing config) |
+| `/cancel` | Exit the setup wizard mid-flow |
 | `/manage` | Dashboard with quick action buttons |
 | `/help` | Show help message |
 

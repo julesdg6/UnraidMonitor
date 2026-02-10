@@ -35,7 +35,9 @@ HELP_TEXT = """📋 *Commands*
 /mute-server • /mute-array + unmute
 /mutes • /ignore • /ignores
 
-*Quick Access*
+*Setup & Management*
+/setup • Re-run the setup wizard
+/cancel • Exit the setup wizard
 /manage • Dashboard with status, resources, ignores & mutes
 
 _Partial names work: /status rad → radarr_
