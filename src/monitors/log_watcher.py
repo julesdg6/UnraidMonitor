@@ -146,10 +146,18 @@ class LogWatcher:
         container = self._client.containers.get(container_name)
 
         # Use queue to bridge blocking log stream to async processing
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        # Bounded to prevent unbounded memory growth during error storms
+        queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=10000)
         log_stream = None
 
         loop = asyncio.get_event_loop()
+
+        def _safe_put(item: str | None) -> None:
+            """Put item in queue, dropping if full (log storm protection)."""
+            try:
+                queue.put_nowait(item)
+            except asyncio.QueueFull:
+                pass  # Drop line during log storms to prevent memory growth
 
         def stream_to_queue():
             """Blocking function that streams logs and puts them in the queue."""
@@ -161,7 +169,7 @@ class LogWatcher:
                         break
                     decoded = line.decode("utf-8", errors="replace").strip()
                     if decoded:  # Skip empty lines
-                        loop.call_soon_threadsafe(queue.put_nowait, decoded)
+                        loop.call_soon_threadsafe(_safe_put, decoded)
             except Exception as e:
                 if self._running:
                     logger.error(f"Error streaming logs from {container_name}: {e}")
@@ -172,8 +180,14 @@ class LogWatcher:
                         log_stream.close()
                     except Exception:
                         pass
-                # Signal end of stream
-                loop.call_soon_threadsafe(queue.put_nowait, None)
+                # Signal end of stream — never drop the sentinel
+                while True:
+                    try:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+                        break
+                    except asyncio.QueueFull:
+                        import time
+                        time.sleep(0.1)
 
         # Start the blocking stream in a thread
         stream_task = asyncio.create_task(asyncio.to_thread(stream_to_queue))

@@ -222,7 +222,7 @@ class SetupWizard:
                             f"Unraid connection test {scheme}://{host}:{port} "
                             f"-> status {resp.status}"
                         )
-                        if resp.status < 500:
+                        if resp.status < 400:
                             return (True, port, use_ssl)
             except Exception as e:
                 logger.info(f"Unraid connection test {scheme}://{host}:{port} failed: {e}")

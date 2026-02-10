@@ -307,12 +307,12 @@ class AppConfig:
     @property
     def ignored_containers(self) -> list[str]:
         """Get list of container names to ignore."""
-        return self._yaml_config.get("ignored_containers", [])
+        return self._yaml_config.get("ignored_containers") or []
 
     @property
     def protected_containers(self) -> list[str]:
         """Get list of containers that cannot be controlled via Telegram."""
-        return self._yaml_config.get("protected_containers", [])
+        return self._yaml_config.get("protected_containers") or []
 
     @property
     def log_watching(self) -> dict[str, Any]:
@@ -569,10 +569,24 @@ class ConfigWriter:
         }
 
     def _write_yaml(self, config: dict[str, Any]) -> None:
-        """Write config dict to the YAML file."""
+        """Write config dict to the YAML file atomically."""
+        import tempfile
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        # Write to temp file then atomically rename to prevent corruption
+        fd, tmp_path = tempfile.mkstemp(
+            dir=self._path.parent, suffix=".tmp", prefix=".config_"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            os.replace(tmp_path, self._path)
+        except Exception:
+            # Clean up temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
 
 DEFAULT_CONFIG_TEMPLATE = '''# Unraid Monitor Bot Configuration
