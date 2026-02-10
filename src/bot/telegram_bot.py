@@ -62,6 +62,7 @@ from src.services.diagnostic import DiagnosticService
 
 if TYPE_CHECKING:
     from src.monitors.memory_monitor import MemoryMonitor
+    from src.bot.setup_wizard import SetupWizard
 
 logger = logging.getLogger(__name__)
 
@@ -461,3 +462,62 @@ def register_commands(
         return confirmation, diagnostic_service
 
     return None, None
+
+
+# ---------------------------------------------------------------------------
+# Setup wizard registration
+# ---------------------------------------------------------------------------
+
+def register_setup_wizard(
+    dp: Dispatcher,
+    wizard: "SetupWizard",
+    on_complete: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    """Register setup wizard handlers on the dispatcher.
+
+    This adds the setup mode middleware (blocks non-wizard commands during
+    setup) and registers all wizard-related message/callback handlers.
+    """
+    from src.bot.setup_wizard import (
+        SetupModeMiddleware,
+        WizardState,
+        create_start_handler,
+        create_host_handler,
+        create_confirm_callback,
+        create_toggle_callback,
+        create_adjust_callback,
+        create_adjust_done_callback,
+    )
+
+    # Middleware blocks non-wizard commands while setup is active
+    dp.message.middleware(SetupModeMiddleware(wizard))
+
+    # /start and /setup begin the wizard
+    dp.message.register(create_start_handler(wizard), Command("start"))
+    dp.message.register(create_start_handler(wizard), Command("setup"))
+
+    # Custom filter: only match text messages when wizard is awaiting host
+    class AwaitingHostFilter(Filter):
+        async def __call__(self, message: Message) -> bool:
+            user_id = message.from_user.id if message.from_user else 0
+            return wizard.get_state(user_id) == WizardState.AWAITING_HOST
+
+    dp.message.register(create_host_handler(wizard), AwaitingHostFilter())
+
+    # Callback queries for wizard buttons
+    dp.callback_query.register(
+        create_confirm_callback(wizard, on_complete=on_complete),
+        F.data == "setup:confirm",
+    )
+    dp.callback_query.register(
+        create_adjust_callback(wizard),
+        F.data.startswith("setup:adjust:"),
+    )
+    dp.callback_query.register(
+        create_toggle_callback(wizard),
+        F.data.startswith("setup:toggle:"),
+    )
+    dp.callback_query.register(
+        create_adjust_done_callback(wizard),
+        F.data == "setup:adjust_done",
+    )
