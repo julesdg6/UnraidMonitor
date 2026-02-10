@@ -182,13 +182,18 @@ class SetupWizard:
                     async with session.post(
                         url,
                         headers=headers,
-                        json={"query": "{ info { os } }"},
+                        json={"query": "{ info { os { hostname } } }"},
                         timeout=aiohttp.ClientTimeout(total=10),
                         ssl=False if use_ssl else None,
                     ) as resp:
-                        if resp.status == 200:
+                        logger.info(
+                            f"Unraid connection test {scheme}://{host}:{port} "
+                            f"-> status {resp.status}"
+                        )
+                        if resp.status < 500:
                             return (True, port, use_ssl)
-            except Exception:
+            except Exception as e:
+                logger.info(f"Unraid connection test {scheme}://{host}:{port} failed: {e}")
                 continue
 
         return (False, 0, False)
