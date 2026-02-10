@@ -64,7 +64,9 @@ def ignore_command(
     """Factory for /ignore command handler."""
 
     async def handler(message: Message) -> None:
-        user_id = message.from_user.id if message.from_user else 0
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
 
         # Must be replying to an error alert
         if not message.reply_to_message or not message.reply_to_message.text:
@@ -112,7 +114,9 @@ def ignore_selection_handler(
     """Factory for ignore selection follow-up handler."""
 
     async def handler(message: Message) -> None:
-        user_id = message.from_user.id if message.from_user else 0
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
 
         if not selection_state.has_pending(user_id):
             # No pending selection - don't respond

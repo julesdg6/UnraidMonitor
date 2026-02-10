@@ -556,8 +556,14 @@ async def start_monitoring(
 # Graceful shutdown helper
 # ---------------------------------------------------------------------------
 
+_shutting_down = False
+
 async def _graceful_shutdown(dp: object) -> None:
     """Signal handler: stop polling so the finally block runs."""
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
     logger.info("Received shutdown signal, stopping...")
     dp.stop_polling()
 
@@ -686,7 +692,7 @@ async def main() -> None:
                 if chat_id:
                     await bot.send_message(chat_id, f"⚠️ Monitor startup failed: {e}\nBot is still responsive.")
 
-        asyncio.create_task(_start_monitors_safe())
+        bg.add_task(asyncio.create_task(_start_monitors_safe()))
 
         logger.info("Starting Telegram bot...")
         loop = asyncio.get_running_loop()
