@@ -5,7 +5,7 @@ from datetime import timedelta
 from aiogram.types import Message
 
 from src.alerts.mute_manager import parse_duration
-from src.utils.formatting import extract_container_from_alert
+from src.utils.formatting import extract_container_from_alert, truncate_message
 
 if TYPE_CHECKING:
     from src.alerts.mute_manager import MuteManager
@@ -186,7 +186,7 @@ def mutes_command(
         if array_expiry:
             lines.append(f"🔇 *Array alerts muted* until {array_expiry.strftime('%H:%M')}")
 
-        await message.answer("\n".join(lines), parse_mode="Markdown")
+        await message.answer(truncate_message("\n".join(lines)), parse_mode="Markdown")
 
     return handler
 

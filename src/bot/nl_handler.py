@@ -5,6 +5,8 @@ from typing import Any, Awaitable, Callable
 from aiogram.filters import BaseFilter
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
+from src.utils.formatting import truncate_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,7 +64,7 @@ def create_nl_handler(processor: Any) -> Callable[[Message], Awaitable[None]]:
                 ]
             ])
 
-        await message.answer(result.response, reply_markup=reply_markup)
+        await message.answer(truncate_message(result.response), reply_markup=reply_markup)
 
     return handler
 

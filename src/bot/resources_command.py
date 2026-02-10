@@ -2,6 +2,8 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message
 
+from src.utils.formatting import truncate_message
+
 if TYPE_CHECKING:
     from src.monitors.resource_monitor import ResourceMonitor
 
@@ -66,7 +68,7 @@ def resources_command(
                 await message.answer("📊 No running containers found")
                 return
 
-            await message.answer(summary, parse_mode="Markdown")
+            await message.answer(truncate_message(summary), parse_mode="Markdown")
         else:
             # Detailed view for specific container
             container_name = parts[1].strip()

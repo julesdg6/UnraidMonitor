@@ -4,7 +4,7 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery
 
-from src.utils.formatting import extract_container_from_alert
+from src.utils.formatting import extract_container_from_alert, truncate_message
 
 if TYPE_CHECKING:
     from src.alerts.recent_errors import RecentErrorsBuffer
@@ -224,7 +224,7 @@ def ignores_command(
         lines.append("Use /ignore to add more")
 
         # Don't use Markdown - patterns may contain special characters
-        await message.answer("\n".join(lines))
+        await message.answer(truncate_message("\n".join(lines), suffix="\n\n(truncated)"))
 
     return handler
 

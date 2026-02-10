@@ -7,6 +7,7 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 from aiogram.types import Message
 
 from src.alerts.mute_manager import parse_duration
+from src.utils.formatting import truncate_message
 
 if TYPE_CHECKING:
     from src.unraid.monitors.system_monitor import UnraidSystemMonitor
@@ -66,9 +67,9 @@ async def format_server_brief(system_monitor: "UnraidSystemMonitor") -> str | No
     if not metrics:
         return None
 
-    cpu = metrics.get("cpu_percent", 0)
+    cpu = metrics.get("cpu_percent") or 0
     temp = metrics.get("cpu_temperature")
-    memory = metrics.get("memory_percent", 0)
+    memory = metrics.get("memory_percent") or 0
     uptime = format_uptime(metrics.get("uptime", ""))
 
     temp_str = f" ({temp:.1f}°C)" if temp is not None else ""
@@ -90,10 +91,10 @@ async def format_server_detailed(system_monitor: "UnraidSystemMonitor") -> str |
     if not metrics:
         return None
 
-    cpu = metrics.get("cpu_percent", 0)
+    cpu = metrics.get("cpu_percent") or 0
     temp = metrics.get("cpu_temperature")
-    memory = metrics.get("memory_percent", 0)
-    memory_gb = metrics.get("memory_used", 0) / (1024**3)
+    memory = metrics.get("memory_percent") or 0
+    memory_gb = (metrics.get("memory_used") or 0) / (1024**3)
     uptime = format_uptime(metrics.get("uptime", ""))
 
     lines = [
@@ -347,7 +348,7 @@ def disks_command(
         response = await format_disks(system_monitor)
 
         if response:
-            await message.answer(response, parse_mode="Markdown")
+            await message.answer(truncate_message(response), parse_mode="Markdown")
         else:
             await message.answer("💾 Disk status unavailable.")
 
