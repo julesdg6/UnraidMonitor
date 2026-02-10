@@ -207,8 +207,11 @@ class SetupWizard:
             results: list[tuple[str, str, str]] = []
             for c in containers:
                 name = c.name
-                image_tags = c.image.tags
-                image = image_tags[0] if image_tags else str(c.image.id)[:20]
+                try:
+                    image_tags = c.image.tags
+                    image = image_tags[0] if image_tags else str(c.image.id)[:20]
+                except Exception:
+                    image = c.attrs.get("Config", {}).get("Image", "unknown")
                 status = c.status
                 results.append((name, image, status))
             return results
