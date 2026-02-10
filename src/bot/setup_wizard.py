@@ -131,9 +131,21 @@ class SetupWizard:
     def get_session_data(self, user_id: int) -> WizardSession:
         return self._get_or_create_session(user_id)
 
+    def _active_session_owner(self) -> int | None:
+        """Return user_id of active wizard session owner, or None."""
+        for uid, session in self._sessions.items():
+            if session.state not in (WizardState.IDLE, WizardState.COMPLETE):
+                return uid
+        return None
+
     # -- state transitions ------------------------------------------------
 
     def start(self, user_id: int) -> None:
+        # Prevent concurrent wizard sessions that could corrupt config
+        active_owner = self._active_session_owner()
+        if active_owner is not None and active_owner != user_id:
+            raise RuntimeError("Another user is already running the setup wizard")
+
         session = self._get_or_create_session(user_id)
         if self._unraid_api_key:
             session.state = WizardState.AWAITING_HOST
@@ -211,12 +223,21 @@ class SetupWizard:
                         "Content-Type": "application/json",
                         "apollo-require-preflight": "true",
                     }
+                    # For HTTPS, first try with verification disabled since Unraid
+                    # often uses self-signed certs. The actual client respects
+                    # the verify_ssl config setting for ongoing connections.
+                    import ssl as ssl_module
+                    ssl_ctx = None
+                    if use_ssl:
+                        ssl_ctx = ssl_module.create_default_context()
+                        ssl_ctx.check_hostname = False
+                        ssl_ctx.verify_mode = ssl_module.CERT_NONE
                     async with session.post(
                         url,
                         headers=headers,
                         json={"query": "{ info { os { hostname } } }"},
                         timeout=aiohttp.ClientTimeout(total=10),
-                        ssl=False if use_ssl else None,
+                        ssl=ssl_ctx,
                     ) as resp:
                         logger.info(
                             f"Unraid connection test {scheme}://{host}:{port} "
@@ -482,7 +503,11 @@ def create_start_handler(
             return
         user_id = message.from_user.id
 
-        wizard.start(user_id)
+        try:
+            wizard.start(user_id)
+        except RuntimeError as e:
+            await message.answer(f"⚠️ {e}")
+            return
         state = wizard.get_state(user_id)
 
         welcome = (

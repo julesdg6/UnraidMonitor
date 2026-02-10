@@ -365,6 +365,9 @@ class ResourceMonitor:
 
     async def _poll_cycle(self) -> None:
         """Execute one polling cycle."""
+        # Periodically clean up stale rate limiter entries to prevent memory leak
+        self._rate_limiter.cleanup_stale()
+
         stats_list = await self.get_all_stats()
         active_names = {s.name for s in stats_list}
 

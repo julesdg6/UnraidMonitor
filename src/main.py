@@ -318,7 +318,7 @@ async def start_monitoring(
 
     try:
         monitor.connect()
-        monitor.load_initial_state()
+        await asyncio.to_thread(monitor.load_initial_state)
     except Exception as e:
         logger.error(f"Failed to connect to Docker: {e}")
         raise
@@ -539,6 +539,15 @@ async def start_monitoring(
                 logger.info("Unraid array monitoring started")
         except Exception as e:
             logger.error(f"Failed to connect to Unraid: {e}")
+            # Notify user about Unraid connection failure
+            chat_id = chat_id_store.get_chat_id()
+            if chat_id:
+                await send_with_retry(
+                    bot.send_message,
+                    chat_id=chat_id,
+                    text=f"⚠️ Failed to connect to Unraid server: {e}\n"
+                         f"Server monitoring is disabled. Check UNRAID_API_KEY and host settings.",
+                )
 
     logger.info("All monitors started")
 
@@ -609,6 +618,8 @@ async def main() -> None:
                     chat_id,
                     "✅ Setup complete! Restarting to apply configuration...",
                 )
+            # Stop polling gracefully before re-exec to flush pending updates
+            dp.stop_polling()
             await asyncio.sleep(1)
             # Re-exec the process so it boots with the new config.yaml
             os.execv(sys.executable, [sys.executable, "-m", "src.main"])
@@ -659,6 +670,8 @@ async def main() -> None:
                         chat_id,
                         "✅ Configuration updated! Restarting to apply changes...",
                     )
+                # Stop polling gracefully before re-exec to flush pending updates
+                dp.stop_polling()
                 await asyncio.sleep(1)
                 os.execv(sys.executable, [sys.executable, "-m", "src.main"])
 

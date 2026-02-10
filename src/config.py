@@ -255,7 +255,10 @@ def load_yaml_config(path: str) -> dict[str, Any]:
         content = f.read()
         if not content.strip():
             return {}
-        return yaml.safe_load(content) or {}
+        try:
+            return yaml.safe_load(content) or {}
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML in {path}: {e}") from e
 
 
 class Settings(BaseSettings):

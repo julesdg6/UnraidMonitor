@@ -88,7 +88,13 @@ class ContainerController:
 
             # Step 1: Pull latest image BEFORE touching the running container
             logger.info(f"Pulling image for {container_name}: {image_name}")
-            await asyncio.to_thread(self.docker_client.images.pull, image_name)
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(self.docker_client.images.pull, image_name),
+                    timeout=300,  # 5 minute timeout for image pulls
+                )
+            except asyncio.TimeoutError:
+                return f"❌ Timed out pulling image for {container_name} (>5 min). Container unchanged."
 
             # Step 2: Save full container config while still running
             attrs = container.attrs

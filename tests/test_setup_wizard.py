@@ -114,11 +114,16 @@ class TestWizardState:
         session = wizard_with_unraid.get_session_data(123)
         assert session.unraid_host == "my-server.local"
 
-    def test_separate_user_sessions(self, wizard):
+    def test_separate_user_sessions_blocked(self, wizard):
+        """Concurrent wizard sessions are blocked to prevent config corruption."""
         wizard.start(user_id=100)
-        wizard.start(user_id=200)
+        with pytest.raises(RuntimeError, match="Another user"):
+            wizard.start(user_id=200)
+        # First user can still proceed
         wizard.confirm(100)
         assert wizard.get_state(100) == WizardState.COMPLETE
+        # Now second user can start
+        wizard.start(user_id=200)
         assert wizard.get_state(200) == WizardState.REVIEW_CONTAINERS
 
 

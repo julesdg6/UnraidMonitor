@@ -87,7 +87,11 @@ class DockerEventMonitor:
         logger.info("Connected to Docker socket")
 
     def load_initial_state(self) -> None:
-        """Load all containers into state manager."""
+        """Load all containers into state manager.
+
+        Note: This method makes blocking Docker API calls. When called from an
+        async context, wrap in asyncio.to_thread().
+        """
         if not self._client:
             raise RuntimeError("Not connected to Docker")
 

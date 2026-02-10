@@ -1,4 +1,5 @@
 # src/services/nl_processor.py
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -164,6 +165,7 @@ class NLProcessor:
             max_per_hour=rate_limit_per_hour,
         )
         self._cached_tools: list[dict[str, Any]] | None = None
+        self._user_locks: dict[int, asyncio.Lock] = {}
 
     async def process(self, user_id: int, message: str) -> ProcessResult:
         """Process a natural language message and return a response.
@@ -194,33 +196,38 @@ class NLProcessor:
                 response=f"Message too long ({len(message)} chars). Maximum is {max_message_length}."
             )
 
-        memory = self.memory_store.get_or_create(user_id)
+        # Per-user lock prevents concurrent requests from garbling conversation history
+        if user_id not in self._user_locks:
+            self._user_locks[user_id] = asyncio.Lock()
 
-        # Clear any pending action when new message arrives
-        memory.pending_action = None
+        async with self._user_locks[user_id]:
+            memory = self.memory_store.get_or_create(user_id)
 
-        # Build messages with history
-        messages = memory.get_messages()
-        messages.append({"role": "user", "content": message})
+            # Clear any pending action when new message arrives
+            memory.pending_action = None
 
-        try:
-            response_text, pending_action = await self._call_claude(messages)
+            # Build messages with history
+            messages = memory.get_messages()
+            messages.append({"role": "user", "content": message})
 
-            # Store the exchange
-            memory.add_exchange(message, response_text)
+            try:
+                response_text, pending_action = await self._call_claude(messages)
 
-            # Store pending action if any
-            if pending_action:
-                memory.pending_action = pending_action
+                # Store the exchange
+                memory.add_exchange(message, response_text)
 
-            return ProcessResult(response=response_text, pending_action=pending_action)
+                # Store pending action if any
+                if pending_action:
+                    memory.pending_action = pending_action
 
-        except Exception as e:
-            error_result = handle_anthropic_error(e)
-            logger.log(error_result.log_level, f"NL processing error: {e}")
-            return ProcessResult(
-                response=f"Sorry, {error_result.user_message.lower()} Try using /commands instead."
-            )
+                return ProcessResult(response=response_text, pending_action=pending_action)
+
+            except Exception as e:
+                error_result = handle_anthropic_error(e)
+                logger.log(error_result.log_level, f"NL processing error: {e}")
+                return ProcessResult(
+                    response=f"Sorry, {error_result.user_message.lower()} Try using /commands instead."
+                )
 
     def _get_cached_tools(self) -> list[dict[str, Any]]:
         """Return cached tool definitions (built once)."""

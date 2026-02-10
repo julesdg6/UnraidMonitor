@@ -165,11 +165,12 @@ def status_command(
             matches = state.find_by_name(query)
 
             if not matches:
-                response = f"❌ No container found matching '{query}'"
+                await message.answer(f"❌ No container found matching '{query}'")
+                return
             elif len(matches) == 1:
                 response = await format_container_details(matches[0], resource_monitor)
             else:
-                names = ", ".join(m.name for m in matches)
+                names = ", ".join(escape_markdown(m.name) for m in matches)
                 response = f"Multiple matches found: {names}\n\n_Be more specific_"
 
         await message.answer(response, parse_mode="Markdown")
@@ -211,7 +212,7 @@ def logs_command(
             return
 
         if len(matches) > 1:
-            names = ", ".join(m.name for m in matches)
+            names = ", ".join(escape_markdown(m.name) for m in matches)
             await message.answer(f"Multiple matches found: {names}\n\n_Be more specific_", parse_mode="Markdown")
             return
 
@@ -242,6 +243,7 @@ def logs_command(
         except docker.errors.NotFound:
             await message.answer(f"❌ Container '{container.name}' not found in Docker")
         except Exception as e:
+            logger.error(f"Error getting logs for {container.name}: {e}", exc_info=True)
             await message.answer(f"❌ Error getting logs. Check bot logs for details.")
 
     return handler

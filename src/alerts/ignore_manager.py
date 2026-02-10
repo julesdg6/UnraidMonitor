@@ -46,24 +46,22 @@ def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
     except re.error as e:
         return False, str(e)
 
-    # Test against a pathological string to catch patterns that cause backtracking
-    import signal
-
+    # Test against a pathological string to catch patterns that cause backtracking.
+    # Uses a daemon thread with a timeout instead of signal.SIGALRM, which is
+    # process-global, only works on the main thread, and blocks the event loop.
     test_string = "a" * 100
+    result: list[bool] = []
 
-    def _timeout_handler(signum, frame):
-        raise TimeoutError("Regex test timed out")
-
-    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-    try:
-        signal.alarm(1)  # 1 second timeout
+    def _test_regex():
         compiled.search(test_string)
-        signal.alarm(0)
-    except TimeoutError:
+        result.append(True)
+
+    t = threading.Thread(target=_test_regex, daemon=True)
+    t.start()
+    t.join(timeout=1.0)
+
+    if not result:
         return False, "Pattern causes excessive backtracking"
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
 
     return True, ""
 
