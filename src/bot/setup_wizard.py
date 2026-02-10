@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 import aiohttp
+import yaml
 from aiogram import BaseMiddleware
 from aiogram.types import (
     CallbackQuery,
@@ -155,6 +156,29 @@ class SetupWizard:
         """Reset the wizard back to idle state."""
         if user_id in self._sessions:
             del self._sessions[user_id]
+
+    # -- existing config ---------------------------------------------------
+
+    def get_existing_unraid_config(self) -> tuple[str, int, bool] | None:
+        """Read Unraid host/port/ssl from existing config.yaml.
+
+        Returns (host, port, use_ssl) or None if not configured.
+        """
+        if not os.path.exists(self._config_path):
+            return None
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f) or {}
+            unraid = data.get("unraid", {})
+            host = unraid.get("host")
+            if not host or host == "your-unraid-ip":
+                return None
+            port = unraid.get("port", 443)
+            use_ssl = unraid.get("use_ssl", True)
+            return (host, port, use_ssl)
+        except Exception as e:
+            logger.debug(f"Could not read existing unraid config: {e}")
+            return None
 
     # -- connection test --------------------------------------------------
 
@@ -404,13 +428,50 @@ def create_start_handler(
         )
 
         if state == WizardState.AWAITING_HOST:
-            welcome += " and Unraid server.\n\n"
-            welcome += (
-                "First, let's connect to your Unraid server.\n"
-                "Please enter your Unraid server IP or hostname "
-                "(e.g. `192.168.0.190`):"
-            )
-            await message.answer(welcome, parse_mode="Markdown")
+            # Check if there's an existing Unraid config we can reuse
+            existing = wizard.get_existing_unraid_config()
+            if existing:
+                host, port, use_ssl = existing
+                welcome += " and Unraid server.\n\n"
+                welcome += f"Testing existing connection to `{host}`..."
+                await message.answer(welcome, parse_mode="Markdown")
+
+                api_key = wizard._unraid_api_key or ""
+                success, found_port, found_ssl = await wizard.test_unraid_connection(
+                    host, api_key
+                )
+
+                if success:
+                    wizard.set_host(user_id, host)
+                    wizard.connection_result(user_id, True, found_port, found_ssl)
+                    scheme = "HTTPS" if found_ssl else "HTTP"
+                    await message.answer(
+                        f"Connected to Unraid via {scheme} on port {found_port}.\n\n"
+                        "Now scanning Docker containers..."
+                    )
+                    classifications = await wizard.classify_containers(user_id)
+                    summary = format_classification_summary(classifications)
+                    keyboard = build_summary_keyboard()
+                    await message.answer(
+                        summary, reply_markup=keyboard, parse_mode="Markdown"
+                    )
+                    return
+
+                # Connection failed - fall through to ask for IP
+                await message.answer(
+                    f"Could not connect to `{host}`.\n\n"
+                    "Please enter your Unraid server IP or hostname "
+                    "(e.g. `192.168.0.190`):",
+                    parse_mode="Markdown",
+                )
+            else:
+                welcome += " and Unraid server.\n\n"
+                welcome += (
+                    "First, let's connect to your Unraid server.\n"
+                    "Please enter your Unraid server IP or hostname "
+                    "(e.g. `192.168.0.190`):"
+                )
+                await message.answer(welcome, parse_mode="Markdown")
         else:
             welcome += ".\n\n"
             welcome += "Scanning Docker containers..."
