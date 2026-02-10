@@ -582,11 +582,9 @@ async def main() -> None:
                     chat_id,
                     "✅ Setup complete! Restarting to apply configuration...",
                 )
-            # Give Telegram a moment to deliver the message
             await asyncio.sleep(1)
-            # Exit cleanly -- Docker restart policy will bring us back
-            # with the new config.yaml in place
-            raise SystemExit(0)
+            # Re-exec the process so it boots with the new config.yaml
+            os.execv(sys.executable, [sys.executable, "-m", "src.main"])
 
         register_setup_wizard(dp, wizard, on_complete=on_wizard_complete)
 
@@ -632,7 +630,7 @@ async def main() -> None:
                         "✅ Configuration updated! Restarting to apply changes...",
                     )
                 await asyncio.sleep(1)
-                raise SystemExit(0)
+                os.execv(sys.executable, [sys.executable, "-m", "src.main"])
 
             register_setup_wizard(dp, wizard, on_complete=on_rerun_complete, register_start=False)
 
