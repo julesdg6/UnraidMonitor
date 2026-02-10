@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -527,6 +528,16 @@ async def start_monitoring(
 
 
 # ---------------------------------------------------------------------------
+# Graceful shutdown helper
+# ---------------------------------------------------------------------------
+
+async def _graceful_shutdown(dp: object) -> None:
+    """Signal handler: stop polling so the finally block runs."""
+    logger.info("Received shutdown signal, stopping...")
+    dp.stop_polling()
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -589,6 +600,9 @@ async def main() -> None:
         register_setup_wizard(dp, wizard, on_complete=on_wizard_complete)
 
         logger.info("Starting Telegram bot (setup wizard mode)...")
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(_graceful_shutdown(dp)))
         try:
             await dp.start_polling(bot)
         finally:
@@ -634,9 +648,21 @@ async def main() -> None:
 
             register_setup_wizard(dp, wizard, on_complete=on_rerun_complete, register_start=False)
 
-        await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
+        async def _start_monitors_safe() -> None:
+            try:
+                await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
+            except Exception as e:
+                logger.error(f"Monitor startup failed: {e} -- bot still running, use /setup to reconfigure")
+                chat_id = chat_id_store.get_chat_id()
+                if chat_id:
+                    await bot.send_message(chat_id, f"⚠️ Monitor startup failed: {e}\nBot is still responsive.")
+
+        asyncio.create_task(_start_monitors_safe())
 
         logger.info("Starting Telegram bot...")
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(_graceful_shutdown(dp)))
         try:
             await dp.start_polling(bot)
         finally:

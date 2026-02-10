@@ -27,10 +27,11 @@ class ServerMuteManager(BaseMuteManager):
 
     def mute_server(self, duration: timedelta) -> datetime:
         """Mute all server alerts (system, array, UPS)."""
-        expiry = datetime.now() + duration
-        for cat in self.CATEGORIES:
-            self._mutes[cat] = expiry
-        self._save()
+        with self._lock:
+            expiry = datetime.now() + duration
+            for cat in self.CATEGORIES:
+                self._mutes[cat] = expiry
+            self._save()
         logger.info(f"Muted all server alerts until {expiry}")
         return expiry
 
@@ -48,13 +49,15 @@ class ServerMuteManager(BaseMuteManager):
 
     def unmute_server(self) -> bool:
         """Unmute all server alerts."""
-        removed = False
-        for cat in self.CATEGORIES:
-            if cat in self._mutes:
-                del self._mutes[cat]
-                removed = True
+        with self._lock:
+            removed = False
+            for cat in self.CATEGORIES:
+                if cat in self._mutes:
+                    del self._mutes[cat]
+                    removed = True
+            if removed:
+                self._save()
         if removed:
-            self._save()
             logger.info("Unmuted all server alerts")
         return removed
 

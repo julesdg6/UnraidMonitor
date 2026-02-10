@@ -33,12 +33,13 @@ class ArrayMuteManager(BaseMuteManager):
 
     def get_mute_expiry(self) -> datetime | None:
         """Get the mute expiry time."""
-        if self._KEY not in self._mutes:
-            return None
+        with self._lock:
+            if self._KEY not in self._mutes:
+                return None
 
-        if datetime.now() >= self._mutes[self._KEY]:
-            del self._mutes[self._KEY]
-            self._save()
-            return None
+            if datetime.now() >= self._mutes[self._KEY]:
+                del self._mutes[self._KEY]
+                self._save()
+                return None
 
-        return self._mutes[self._KEY]
+            return self._mutes[self._KEY]

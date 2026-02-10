@@ -1,9 +1,9 @@
-import asyncio
 import json
 import logging
 import os
 import re
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -112,23 +112,24 @@ class IgnoreManager:
         self._config_ignores = config_ignores
         self._json_path = Path(json_path)
         self._runtime_ignores: dict[str, list[IgnorePattern]] = {}
-        self._lock = asyncio.Lock()
+        self._lock = threading.RLock()
         self._load_runtime_ignores()
 
     def is_ignored(self, container: str, message: str) -> bool:
         """Check if message should be ignored."""
-        # Check config ignores (always substring, case-insensitive)
-        message_lower = message.lower()
-        for pattern in self._config_ignores.get(container, []):
-            if pattern.lower() in message_lower:
-                return True
+        with self._lock:
+            # Check config ignores (always substring, case-insensitive)
+            message_lower = message.lower()
+            for pattern in self._config_ignores.get(container, []):
+                if pattern.lower() in message_lower:
+                    return True
 
-        # Check runtime ignores (can be regex or substring)
-        for ignore_pattern in self._runtime_ignores.get(container, []):
-            if ignore_pattern.matches(message):
-                return True
+            # Check runtime ignores (can be regex or substring)
+            for ignore_pattern in self._runtime_ignores.get(container, []):
+                if ignore_pattern.matches(message):
+                    return True
 
-        return False
+            return False
 
     def add_ignore_pattern(
         self,
@@ -148,30 +149,31 @@ class IgnoreManager:
         Returns:
             Tuple of (success, message). If success is False, message explains why.
         """
-        # Validate regex patterns for safety
+        # Validate regex patterns for safety (outside lock to avoid holding it during expensive validation)
         if match_type == "regex":
             is_valid, error = validate_regex_pattern(pattern)
             if not is_valid:
                 return False, f"Invalid regex: {error}"
 
-        if container not in self._runtime_ignores:
-            self._runtime_ignores[container] = []
+        with self._lock:
+            if container not in self._runtime_ignores:
+                self._runtime_ignores[container] = []
 
-        # Check if already exists (by pattern string, case-insensitive)
-        for existing in self._runtime_ignores[container]:
-            if existing.pattern.lower() == pattern.lower():
-                return False, "Pattern already exists"
+            # Check if already exists (by pattern string, case-insensitive)
+            for existing in self._runtime_ignores[container]:
+                if existing.pattern.lower() == pattern.lower():
+                    return False, "Pattern already exists"
 
-        ignore_pattern = IgnorePattern(
-            pattern=pattern,
-            match_type=match_type,
-            explanation=explanation,
-            added=datetime.now().isoformat(),
-        )
-        self._runtime_ignores[container].append(ignore_pattern)
-        self._save_runtime_ignores()
-        logger.info(f"Added ignore for {container}: {pattern} ({match_type})")
-        return True, "Pattern added"
+            ignore_pattern = IgnorePattern(
+                pattern=pattern,
+                match_type=match_type,
+                explanation=explanation,
+                added=datetime.now().isoformat(),
+            )
+            self._runtime_ignores[container].append(ignore_pattern)
+            self._save_runtime_ignores()
+            logger.info(f"Added ignore for {container}: {pattern} ({match_type})")
+            return True, "Pattern added"
 
     def add_ignore(self, container: str, message: str) -> bool:
         """Add a runtime ignore pattern (backward compatible).
@@ -243,95 +245,98 @@ class IgnoreManager:
         Returns:
             True if removed, False if not found.
         """
-        if container not in self._runtime_ignores:
-            return False
+        with self._lock:
+            if container not in self._runtime_ignores:
+                return False
 
-        patterns = self._runtime_ignores[container]
-        if index < 0 or index >= len(patterns):
-            return False
+            patterns = self._runtime_ignores[container]
+            if index < 0 or index >= len(patterns):
+                return False
 
-        removed = patterns.pop(index)
-        logger.info(f"Removed ignore for {container}: {removed.pattern}")
+            removed = patterns.pop(index)
+            logger.info(f"Removed ignore for {container}: {removed.pattern}")
 
-        # Clean up empty container entries
-        if not patterns:
-            del self._runtime_ignores[container]
+            # Clean up empty container entries
+            if not patterns:
+                del self._runtime_ignores[container]
 
-        self._save_runtime_ignores()
-        return True
+            self._save_runtime_ignores()
+            return True
 
     def _load_runtime_ignores(self) -> None:
         """Load runtime ignores from JSON file.
 
         Handles both old format (list of strings) and new format (list of objects).
         """
-        if not self._json_path.exists():
-            self._runtime_ignores = {}
-            return
+        with self._lock:
+            if not self._json_path.exists():
+                self._runtime_ignores = {}
+                return
 
-        try:
-            with open(self._json_path, encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with open(self._json_path, encoding="utf-8") as f:
+                    data = json.load(f)
 
-            self._runtime_ignores = {}
-            for container, patterns in data.items():
-                self._runtime_ignores[container] = []
-                for item in patterns:
-                    if isinstance(item, str):
-                        # Old format: plain string -> substring pattern
-                        self._runtime_ignores[container].append(
-                            IgnorePattern(pattern=item, match_type="substring")
-                        )
-                    elif isinstance(item, dict):
-                        # New format: IgnorePattern object
-                        self._runtime_ignores[container].append(
-                            IgnorePattern(
-                                pattern=item.get("pattern", ""),
-                                match_type=item.get("match_type", "substring"),
-                                explanation=item.get("explanation"),
-                                added=item.get("added"),
+                self._runtime_ignores = {}
+                for container, patterns in data.items():
+                    self._runtime_ignores[container] = []
+                    for item in patterns:
+                        if isinstance(item, str):
+                            # Old format: plain string -> substring pattern
+                            self._runtime_ignores[container].append(
+                                IgnorePattern(pattern=item, match_type="substring")
                             )
-                        )
-        except (json.JSONDecodeError, IOError) as e:
-            logger.warning(f"Failed to load runtime ignores: {e}")
-            self._runtime_ignores = {}
+                        elif isinstance(item, dict):
+                            # New format: IgnorePattern object
+                            self._runtime_ignores[container].append(
+                                IgnorePattern(
+                                    pattern=item.get("pattern", ""),
+                                    match_type=item.get("match_type", "substring"),
+                                    explanation=item.get("explanation"),
+                                    added=item.get("added"),
+                                )
+                            )
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Failed to load runtime ignores: {e}")
+                self._runtime_ignores = {}
 
     def _save_runtime_ignores(self) -> None:
         """Save runtime ignores to JSON file using atomic write pattern."""
-        # Ensure parent directory exists
-        self._json_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            # Ensure parent directory exists
+            self._json_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert to serializable format (exclude _compiled_regex)
-        data = {}
-        for container, patterns in self._runtime_ignores.items():
-            data[container] = [
-                {
-                    "pattern": p.pattern,
-                    "match_type": p.match_type,
-                    "explanation": p.explanation,
-                    "added": p.added,
-                }
-                for p in patterns
-            ]
+            # Convert to serializable format (exclude _compiled_regex)
+            data = {}
+            for container, patterns in self._runtime_ignores.items():
+                data[container] = [
+                    {
+                        "pattern": p.pattern,
+                        "match_type": p.match_type,
+                        "explanation": p.explanation,
+                        "added": p.added,
+                    }
+                    for p in patterns
+                ]
 
-        try:
-            # Atomic write: write to temp file, then rename
-            fd, temp_path = tempfile.mkstemp(
-                dir=self._json_path.parent,
-                prefix=".tmp_ignores_",
-                suffix=".json",
-            )
             try:
-                os.fchmod(fd, 0o666)
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2)
-                os.replace(temp_path, self._json_path)  # Atomic on POSIX
-            except Exception:
-                # Clean up temp file on error
+                # Atomic write: write to temp file, then rename
+                fd, temp_path = tempfile.mkstemp(
+                    dir=self._json_path.parent,
+                    prefix=".tmp_ignores_",
+                    suffix=".json",
+                )
                 try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-                raise
-        except IOError as e:
-            logger.error(f"Failed to save runtime ignores: {e}")
+                    os.fchmod(fd, 0o666)
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
+                    os.replace(temp_path, self._json_path)  # Atomic on POSIX
+                except Exception:
+                    # Clean up temp file on error
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
+                    raise
+            except IOError as e:
+                logger.error(f"Failed to save runtime ignores: {e}")

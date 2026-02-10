@@ -158,14 +158,17 @@ class ArrayMonitor:
                                 alert_type="array",
                             )
                             self._alerted_disks.add(disk_key)
+                    else:
+                        # Condition cleared - allow re-alerting if it returns
+                        self._alerted_disks.discard(disk_key)
                 except (ValueError, TypeError):
                     logger.warning(f"Invalid temperature for {disk_name}: {temp}")
 
             # Check disk status
             status = disk.get("status", "")
+            status_key = f"{disk_key}:status"
             if status and status != "DISK_OK":
                 # Only alert if we haven't already alerted for this disk
-                status_key = f"{disk_key}:status"
                 if status_key not in self._alerted_disks:
                     await self._on_alert(
                         title=f"💾 {disk_type} Problem",
@@ -177,6 +180,9 @@ class ArrayMonitor:
                         alert_type="array",
                     )
                     self._alerted_disks.add(status_key)
+            else:
+                # Status recovered - allow re-alerting
+                self._alerted_disks.discard(status_key)
 
     def clear_alert_state(self) -> None:
         """Clear the alerted disks tracking.
