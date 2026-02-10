@@ -1,13 +1,31 @@
 """Container classifier using pattern matching and optional AI."""
 
+import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from src.utils.api_errors import handle_anthropic_error
+from src.utils.sanitize import sanitize_container_name
 
 if TYPE_CHECKING:
     import anthropic
 
 logger = logging.getLogger(__name__)
+
+VALID_CATEGORIES = {"priority", "protected", "watched", "killable", "ignored"}
+
+CLASSIFY_PROMPT = """Classify these Docker containers into monitoring categories.
+
+Containers:
+{container_list}
+
+Valid categories: priority (critical services, never kill), protected (no remote control), watched (monitor logs), killable (can be stopped to free memory), ignored (don't monitor)
+
+A container can have multiple categories. Most containers should be "watched".
+Return ONLY a JSON array (no markdown, no explanation):
+[{{"name": "container_name", "categories": ["watched"], "description": "Brief description"}}]"""
 
 
 @dataclass
@@ -94,3 +112,74 @@ class ContainerClassifier:
                 result.categories.update(categories)
 
         return result
+
+    async def classify_batch_with_ai(
+        self, unclassified: list[ContainerClassification]
+    ) -> list[ContainerClassification]:
+        """Classify containers using Haiku AI."""
+        if not self._client or not unclassified:
+            return unclassified
+
+        container_list = "\n".join(
+            f"- {sanitize_container_name(c.name)} (image: {sanitize_container_name(c.image)})"
+            for c in unclassified
+        )
+        prompt = CLASSIFY_PROMPT.format(container_list=container_list)
+
+        try:
+            response = await self._client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text
+
+            # Extract JSON array from response
+            json_match = re.search(r"\[.*\]", text, re.DOTALL)
+            if not json_match:
+                logger.error(f"No JSON array found in AI response: {text}")
+                return unclassified
+
+            ai_results = json.loads(json_match.group())
+            by_name = {c.name: c for c in unclassified}
+
+            for item in ai_results:
+                name = item.get("name", "")
+                if name not in by_name:
+                    continue
+                categories = set(item.get("categories", []))
+                valid = categories & VALID_CATEGORIES
+                by_name[name].categories = valid
+                by_name[name].description = item.get("description", "")
+                by_name[name].ai_suggested = True
+
+            return unclassified
+
+        except Exception as e:
+            error_result = handle_anthropic_error(e)
+            logger.log(error_result.log_level, f"AI classification failed: {e}")
+            return unclassified
+
+    async def classify_all(
+        self, containers: list[tuple[str, str, str]]
+    ) -> list[ContainerClassification]:
+        """Classify all containers using pattern matching + AI.
+
+        Args:
+            containers: List of (name, image, status) tuples.
+        """
+        classified = []
+        unclassified = []
+
+        for name, image, status in containers:
+            result = self.classify_by_pattern(name, image)
+            if result.categories:
+                classified.append(result)
+            else:
+                unclassified.append(result)
+
+        if unclassified:
+            ai_results = await self.classify_batch_with_ai(unclassified)
+            classified.extend(ai_results)
+
+        return classified

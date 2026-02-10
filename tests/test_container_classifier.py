@@ -1,6 +1,7 @@
 """Tests for container classifier."""
 
 import pytest
+from unittest.mock import MagicMock, AsyncMock
 from src.services.container_classifier import ContainerClassifier, ContainerClassification
 
 
@@ -45,3 +46,120 @@ class TestPatternMatching:
     def test_case_insensitive(self, classifier):
         result = classifier.classify_by_pattern("MariaDB", "LinuxServer/MariaDB")
         assert "priority" in result.categories
+
+
+class TestAIClassification:
+    @pytest.mark.asyncio
+    async def test_ai_classifies_unknown_containers(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock()]
+        mock_response.content[0].text = (
+            '[{"name": "bookstack", "categories": ["watched"],'
+            ' "description": "Wiki/documentation platform"},'
+            ' {"name": "dozzle", "categories": ["ignored"],'
+            ' "description": "Log viewer UI"}]'
+        )
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        classifier = ContainerClassifier(anthropic_client=mock_client)
+        unclassified = [
+            ContainerClassification(name="bookstack", image="linuxserver/bookstack"),
+            ContainerClassification(name="dozzle", image="amir20/dozzle"),
+        ]
+        results = await classifier.classify_batch_with_ai(unclassified)
+
+        assert len(results) == 2
+        bookstack = next(r for r in results if r.name == "bookstack")
+        assert "watched" in bookstack.categories
+        assert bookstack.ai_suggested is True
+        assert bookstack.description == "Wiki/documentation platform"
+
+    @pytest.mark.asyncio
+    async def test_ai_returns_originals_on_failure(self):
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
+
+        classifier = ContainerClassifier(anthropic_client=mock_client)
+        unclassified = [
+            ContainerClassification(name="bookstack", image="linuxserver/bookstack")
+        ]
+        results = await classifier.classify_batch_with_ai(unclassified)
+
+        assert len(results) == 1
+        assert len(results[0].categories) == 0
+
+    @pytest.mark.asyncio
+    async def test_ai_skipped_without_client(self):
+        classifier = ContainerClassifier(anthropic_client=None)
+        unclassified = [
+            ContainerClassification(name="bookstack", image="linuxserver/bookstack")
+        ]
+        results = await classifier.classify_batch_with_ai(unclassified)
+
+        assert len(results) == 1
+        assert len(results[0].categories) == 0
+
+    @pytest.mark.asyncio
+    async def test_ai_filters_invalid_categories(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock()]
+        mock_response.content[0].text = (
+            '[{"name": "app", "categories": ["watched", "superadmin"],'
+            ' "description": "An app"}]'
+        )
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        classifier = ContainerClassifier(anthropic_client=mock_client)
+        unclassified = [ContainerClassification(name="app", image="myrepo/app")]
+        results = await classifier.classify_batch_with_ai(unclassified)
+
+        assert "watched" in results[0].categories
+        assert "superadmin" not in results[0].categories
+
+
+class TestClassifyAll:
+    @pytest.mark.asyncio
+    async def test_classify_all_combines_pattern_and_ai(self):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock()]
+        mock_response.content[0].text = (
+            '[{"name": "bookstack", "categories": ["watched"],'
+            ' "description": "Wiki"}]'
+        )
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        classifier = ContainerClassifier(anthropic_client=mock_client)
+        containers = [
+            ("mariadb", "linuxserver/mariadb", "running"),
+            ("radarr", "linuxserver/radarr", "running"),
+            ("bookstack", "linuxserver/bookstack", "running"),
+        ]
+        results = await classifier.classify_all(containers)
+
+        mariadb = next(r for r in results if r.name == "mariadb")
+        assert "priority" in mariadb.categories
+        assert mariadb.ai_suggested is False
+
+        radarr = next(r for r in results if r.name == "radarr")
+        assert "watched" in radarr.categories
+
+        bookstack = next(r for r in results if r.name == "bookstack")
+        assert "watched" in bookstack.categories
+        assert bookstack.ai_suggested is True
+
+    @pytest.mark.asyncio
+    async def test_classify_all_no_ai_call_when_all_matched(self):
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+
+        classifier = ContainerClassifier(anthropic_client=mock_client)
+        containers = [
+            ("mariadb", "linuxserver/mariadb", "running"),
+            ("plex", "plexinc/plex-media-server", "running"),
+        ]
+        await classifier.classify_all(containers)
+
+        mock_client.messages.create.assert_not_called()
