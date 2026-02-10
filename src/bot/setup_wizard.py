@@ -253,12 +253,64 @@ class SetupWizard:
 
     # -- classification ---------------------------------------------------
 
+    def _read_existing_categories(self) -> dict[str, set[str]] | None:
+        """Read container categories from existing config.yaml.
+
+        Returns a dict mapping container name -> set of categories,
+        or None if no config exists.
+        """
+        if not os.path.exists(self._config_path):
+            return None
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            return None
+
+        result: dict[str, set[str]] = {}
+        # Map config keys to category names
+        category_keys = {
+            "protected_containers": "protected",
+            "ignored_containers": "ignored",
+        }
+        for key, cat in category_keys.items():
+            for name in data.get(key, []) or []:
+                result.setdefault(name, set()).add(cat)
+
+        log_watching = data.get("log_watching", {}) or {}
+        for name in log_watching.get("containers", []) or []:
+            result.setdefault(name, set()).add("watched")
+
+        mem_mgmt = data.get("memory_management", {}) or {}
+        for name in mem_mgmt.get("priority_containers", []) or []:
+            result.setdefault(name, set()).add("priority")
+        for name in mem_mgmt.get("killable_containers", []) or []:
+            result.setdefault(name, set()).add("killable")
+
+        return result if result else None
+
     async def classify_containers(
         self, user_id: int
     ) -> list[ContainerClassification]:
         """Fetch and classify containers, storing results in session."""
         containers = await asyncio.to_thread(self.get_docker_containers)
-        classifications = await self._classifier.classify_all(containers)
+
+        # On re-run, use existing config categories instead of re-classifying
+        existing = self._read_existing_categories()
+        if existing:
+            classifications = []
+            for name, image, _status in containers:
+                cats = existing.get(name, set())
+                classifications.append(
+                    ContainerClassification(
+                        name=name,
+                        image=image,
+                        categories=cats,
+                    )
+                )
+        else:
+            classifications = await self._classifier.classify_all(containers)
+
         session = self._get_or_create_session(user_id)
         session.classifications = classifications
         return classifications
