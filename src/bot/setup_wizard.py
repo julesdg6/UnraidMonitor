@@ -83,6 +83,14 @@ _CATEGORY_LABELS = {
     "ignored": "Ignored (not monitored)",
 }
 
+_CATEGORY_DESCRIPTIONS = {
+    "priority": "These containers are never killed during memory pressure. Use for critical services like databases and media servers.",
+    "protected": "These containers cannot be controlled (restart/stop/pull) via Telegram commands. Use for infrastructure you don't want accidentally disrupted.",
+    "watched": "Log output from these containers is monitored for errors and you'll get alerts when problems are detected.",
+    "killable": "During critical memory pressure, these containers can be automatically stopped to free RAM. Lowest priority are killed first.",
+    "ignored": "These containers are completely hidden from status reports and alerts. Use for utility containers you don't need to monitor.",
+}
+
 
 # ---------------------------------------------------------------------------
 # Core state machine
@@ -659,12 +667,14 @@ def create_adjust_callback(
 
         emoji = _CATEGORY_EMOJI.get(category, "")
         label = _CATEGORY_LABELS.get(category, category)
+        desc = _CATEGORY_DESCRIPTIONS.get(category, "")
         keyboard = build_adjust_keyboard(session.classifications, category)
 
         await callback.answer()
         if callback.message:
             await callback.message.answer(
-                f"{emoji} *{label}*\n\n"
+                f"{emoji} *{label}*\n"
+                f"_{desc}_\n\n"
                 "Tap a container to toggle it in/out of this category:",
                 reply_markup=keyboard,
                 parse_mode="Markdown",
