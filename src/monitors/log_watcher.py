@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 import docker
@@ -10,6 +11,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Matches the bot's own Python logging output so we never alert on our own logs.
+# Format: "2026-02-12 20:39:54,770 - src.some.module - LEVEL - message"
+_SELF_LOG_RE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - src\.")
+
 
 def matches_error_pattern(
     line: str,
@@ -19,6 +24,10 @@ def matches_error_pattern(
     _cache: dict[tuple[int, int], tuple[list[str], list[str]]] = {},
 ) -> bool:
     """Check if a log line matches any error pattern and no ignore pattern."""
+    # Skip the bot's own Python log output to prevent self-monitoring loops
+    if _SELF_LOG_RE.match(line):
+        return False
+
     line_lower = line.lower()
 
     # Cache lowercased patterns (keyed by id of the original lists)

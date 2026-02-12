@@ -90,14 +90,18 @@ class PatternAnalyzer:
             # Extract JSON from response (may be wrapped in markdown)
             json_match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
             if not json_match:
-                logger.error(f"No JSON found in Haiku response: {text}")
+                logger.warning(f"No JSON found in Haiku response: {text[:200]}")
                 return None
 
-            result = json.loads(json_match.group())
+            try:
+                result = json.loads(json_match.group())
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON in Haiku response: {e}")
+                return None
 
             # Validate required fields
             if not all(k in result for k in ("pattern", "match_type", "explanation")):
-                logger.error(f"Missing fields in Haiku response: {result}")
+                logger.warning(f"Missing fields in Haiku response: {result}")
                 return None
 
             # Validate regex if specified

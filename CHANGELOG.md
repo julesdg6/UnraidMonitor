@@ -2,6 +2,12 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.8.2] - 2026-02-12
+
+### Fixed
+- **Self-monitoring loop** - Bot no longer alerts on its own internal Python log output when watching its own container, preventing feedback loops where errors trigger alerts about those same errors
+- **Pattern analyzer noise** - JSON parse failures from Haiku responses now log at WARNING instead of ERROR, since they are model output quality issues, not system errors
+
 ## [0.8.1] - 2026-02-10
 
 ### Added
