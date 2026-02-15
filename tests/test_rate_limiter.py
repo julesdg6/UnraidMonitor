@@ -70,3 +70,22 @@ def test_rate_limiter_resets_suppressed_on_alert():
     limiter.record_alert("radarr")
 
     assert limiter.get_suppressed_count("radarr") == 0
+
+
+def test_rate_limiter_auto_cleans_stale_entries():
+    """Stale entries should be cleaned automatically via should_alert()."""
+    from src.alerts.rate_limiter import RateLimiter
+
+    limiter = RateLimiter(cooldown_seconds=900)
+
+    # Add a stale entry (25 hours old)
+    limiter._last_alert["old_container"] = datetime.now() - timedelta(hours=25)
+    limiter._suppressed_count["old_container"] = 5
+
+    # Trigger enough calls to hit the cleanup threshold
+    for i in range(101):
+        limiter.should_alert(f"container_{i}")
+
+    # Stale entry should have been cleaned
+    assert "old_container" not in limiter._last_alert
+    assert "old_container" not in limiter._suppressed_count

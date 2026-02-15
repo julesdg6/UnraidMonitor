@@ -6,14 +6,21 @@ class RateLimiter:
 
     # Remove entries older than this to prevent unbounded growth
     _STALE_THRESHOLD = timedelta(hours=24)
+    _CLEANUP_EVERY_N_CHECKS = 100
 
     def __init__(self, cooldown_seconds: int = 900):
         self.cooldown_seconds = cooldown_seconds
         self._last_alert: dict[str, datetime] = {}
         self._suppressed_count: dict[str, int] = {}
+        self._check_count: int = 0
 
     def should_alert(self, container_name: str) -> bool:
         """Check if an alert should be sent for this container."""
+        self._check_count += 1
+        if self._check_count >= self._CLEANUP_EVERY_N_CHECKS:
+            self._check_count = 0
+            self.cleanup_stale()
+
         last = self._last_alert.get(container_name)
         if last is None:
             return True
