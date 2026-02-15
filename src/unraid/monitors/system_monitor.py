@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Minimum seconds between repeated alerts of the same type
 _ALERT_COOLDOWN = 300  # 5 minutes
 
+# How long cached metrics remain valid before a fresh fetch is needed
+_CACHE_TTL = 30  # seconds
+
 
 class UnraidSystemMonitor:
     """Monitors Unraid system metrics and triggers alerts."""
@@ -40,6 +43,9 @@ class UnraidSystemMonitor:
         self._mute_manager = mute_manager
         self._running = False
         self._last_alert_times: dict[str, float] = {}
+        self._cached_metrics: dict | None = None
+        self._cached_array: dict | None = None
+        self._cache_time: float = 0.0
 
     async def start(self) -> None:
         """Start the monitoring loop.
@@ -76,6 +82,9 @@ class UnraidSystemMonitor:
         except Exception as e:
             logger.error(f"Failed to get system metrics: {e}")
             return None
+
+        self._cached_metrics = metrics
+        self._cache_time = time.monotonic()
 
         # Check if muted
         if self._mute_manager.is_server_muted():
@@ -135,11 +144,13 @@ class UnraidSystemMonitor:
         await self._on_alert(**kwargs)
 
     async def get_current_metrics(self) -> dict | None:
-        """Get current metrics without alerting (for commands).
+        """Get current metrics, using cache if fresh.
 
         Returns:
             Metrics dict or None on error.
         """
+        if self._cached_metrics is not None and (time.monotonic() - self._cache_time) < _CACHE_TTL:
+            return self._cached_metrics
         try:
             return await self._client.get_system_metrics()
         except Exception as e:
@@ -147,13 +158,18 @@ class UnraidSystemMonitor:
             return None
 
     async def get_array_status(self) -> dict | None:
-        """Get array status (for commands).
+        """Get array status, using cache if fresh.
 
         Returns:
             Array status dict or None on error.
         """
+        if self._cached_array is not None and (time.monotonic() - self._cache_time) < _CACHE_TTL:
+            return self._cached_array
         try:
-            return await self._client.get_array_status()
+            result = await self._client.get_array_status()
+            self._cached_array = result
+            self._cache_time = time.monotonic()
+            return result
         except Exception as e:
             logger.error(f"Failed to get array status: {e}")
             return None
