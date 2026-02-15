@@ -183,9 +183,9 @@ class MemoryMonitor:
             return
 
         # Check if memory is still critical
-        if self.get_memory_percent() >= self._config.critical_threshold:
+        percent = self.get_memory_percent()
+        if percent >= self._config.critical_threshold:
             await self._stop_container(container_name)
-            percent = self.get_memory_percent()
             await self._on_alert(
                 "Container Stopped",
                 f"Stopped {container_name} to free memory. Memory now at {percent:.0f}%",
