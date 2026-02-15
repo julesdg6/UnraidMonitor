@@ -307,6 +307,18 @@ class AppConfig:
         self._settings = settings
         self._yaml_config = load_yaml_config(settings.config_path)
 
+        # Cache config objects once (config is read-only after startup)
+        self._ai = AIConfig.from_dict(self._yaml_config.get("ai", {}))
+        self._bot_config = BotConfig.from_dict(self._yaml_config.get("bot", {}))
+        self._docker = DockerConfig.from_dict(self._yaml_config.get("docker", {}))
+        self._resource_monitoring = ResourceConfig.from_dict(
+            self._yaml_config.get("resource_monitoring", {})
+        )
+        self._unraid = UnraidConfig.from_dict(self._yaml_config.get("unraid", {}))
+        self._memory_management = MemoryConfig.from_dict(
+            self._yaml_config.get("memory_management", {})
+        )
+
     @property
     def ignored_containers(self) -> list[str]:
         """Get list of container names to ignore."""
@@ -352,33 +364,32 @@ class AppConfig:
     @property
     def ai(self) -> AIConfig:
         """Get AI/Claude API configuration."""
-        return AIConfig.from_dict(self._yaml_config.get("ai", {}))
+        return self._ai
 
     @property
     def bot(self) -> BotConfig:
         """Get bot display and behaviour configuration."""
-        return BotConfig.from_dict(self._yaml_config.get("bot", {}))
+        return self._bot_config
 
     @property
     def docker(self) -> DockerConfig:
         """Get Docker connection configuration."""
-        return DockerConfig.from_dict(self._yaml_config.get("docker", {}))
+        return self._docker
 
     @property
     def resource_monitoring(self) -> ResourceConfig:
         """Get resource monitoring configuration."""
-        raw = self._yaml_config.get("resource_monitoring", {})
-        return ResourceConfig.from_dict(raw)
+        return self._resource_monitoring
 
     @property
     def unraid(self) -> UnraidConfig:
         """Get Unraid configuration."""
-        return UnraidConfig.from_dict(self._yaml_config.get("unraid", {}))
+        return self._unraid
 
     @property
     def memory_management(self) -> MemoryConfig:
         """Get memory management configuration."""
-        return MemoryConfig.from_dict(self._yaml_config.get("memory_management", {}))
+        return self._memory_management
 
 
 class ConfigWriter:

@@ -163,6 +163,26 @@ def test_log_watching_container_ignores_default_when_no_config(tmp_path):
         assert log_watching["container_ignores"] == {}
 
 
+def test_config_properties_return_cached_instances():
+    """Config properties should return the same object on repeated access."""
+    from unittest.mock import patch
+    from src.config import Settings, AppConfig
+
+    with patch.dict("os.environ", {
+        "TELEGRAM_BOT_TOKEN": "test-token",
+        "TELEGRAM_ALLOWED_USERS": "123",
+    }, clear=True):
+        settings = Settings(_env_file=None)
+        config = AppConfig(settings)
+
+        assert config.ai is config.ai
+        assert config.bot is config.bot
+        assert config.docker is config.docker
+        assert config.resource_monitoring is config.resource_monitoring
+        assert config.unraid is config.unraid
+        assert config.memory_management is config.memory_management
+
+
 def test_unraid_array_thresholds(tmp_path):
     """Test array threshold config loading."""
     config_file = tmp_path / "config.yaml"
