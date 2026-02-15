@@ -163,7 +163,16 @@ Respond with 2-3 sentences: What happened, the likely cause, and how to fix it. 
             message = await self._anthropic.messages.create(
                 model=self._model,
                 max_tokens=self._brief_max_tokens,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                }],
             )
             return message.content[0].text
         except Exception as e:
@@ -257,7 +266,16 @@ Be specific and actionable."""
             message = await self._anthropic.messages.create(
                 model=self._model,
                 max_tokens=self._detail_max_tokens,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                }],
             )
             return message.content[0].text
         except Exception as e:
