@@ -1,7 +1,7 @@
 """Rate limiting utilities for API protection."""
 
-from collections import defaultdict
-from datetime import datetime, timedelta
+import time
+from collections import deque
 
 
 class PerUserRateLimiter:
@@ -20,8 +20,8 @@ class PerUserRateLimiter:
         """
         self._max_per_minute = max_per_minute
         self._max_per_hour = max_per_hour
-        self._minute_timestamps: dict[int, list[datetime]] = defaultdict(list)
-        self._hour_timestamps: dict[int, list[datetime]] = defaultdict(list)
+        self._minute_timestamps: dict[int, deque[float]] = {}
+        self._hour_timestamps: dict[int, deque[float]] = {}
 
     def is_allowed(self, user_id: int) -> bool:
         """Check if request is allowed and record it if so.
@@ -32,31 +32,36 @@ class PerUserRateLimiter:
         Returns:
             True if request is allowed, False if rate limited.
         """
-        now = datetime.now()
-        minute_ago = now - timedelta(minutes=1)
-        hour_ago = now - timedelta(hours=1)
+        now = time.monotonic()
+        minute_ago = now - 60
+        hour_ago = now - 3600
 
-        # Clean old entries for current user
-        self._minute_timestamps[user_id] = [
-            t for t in self._minute_timestamps[user_id] if t > minute_ago
-        ]
-        self._hour_timestamps[user_id] = [
-            t for t in self._hour_timestamps[user_id] if t > hour_ago
-        ]
+        if user_id not in self._minute_timestamps:
+            self._minute_timestamps[user_id] = deque()
+            self._hour_timestamps[user_id] = deque()
+
+        # Evict expired entries from the left (O(1) per entry)
+        min_dq = self._minute_timestamps[user_id]
+        while min_dq and min_dq[0] <= minute_ago:
+            min_dq.popleft()
+
+        hr_dq = self._hour_timestamps[user_id]
+        while hr_dq and hr_dq[0] <= hour_ago:
+            hr_dq.popleft()
 
         # Periodically clean empty entries from inactive users
         if len(self._minute_timestamps) > 100:
             self._cleanup_empty()
 
         # Check limits
-        if len(self._minute_timestamps[user_id]) >= self._max_per_minute:
+        if len(min_dq) >= self._max_per_minute:
             return False
-        if len(self._hour_timestamps[user_id]) >= self._max_per_hour:
+        if len(hr_dq) >= self._max_per_hour:
             return False
 
         # Record this request
-        self._minute_timestamps[user_id].append(now)
-        self._hour_timestamps[user_id].append(now)
+        min_dq.append(now)
+        hr_dq.append(now)
         return True
 
     def get_retry_after(self, user_id: int) -> int:
@@ -68,26 +73,27 @@ class PerUserRateLimiter:
         Returns:
             Seconds to wait, or 0 if not rate limited.
         """
-        now = datetime.now()
-        minute_ago = now - timedelta(minutes=1)
+        now = time.monotonic()
+        minute_ago = now - 60
 
-        # Clean and check minute limit
-        self._minute_timestamps[user_id] = [
-            t for t in self._minute_timestamps[user_id] if t > minute_ago
-        ]
+        min_dq = self._minute_timestamps.get(user_id)
+        if not min_dq:
+            return 0
 
-        if len(self._minute_timestamps[user_id]) >= self._max_per_minute:
-            oldest = min(self._minute_timestamps[user_id])
-            wait_until = oldest + timedelta(minutes=1)
-            return max(0, int((wait_until - now).total_seconds()))
+        # Evict expired entries
+        while min_dq and min_dq[0] <= minute_ago:
+            min_dq.popleft()
+
+        if len(min_dq) >= self._max_per_minute:
+            oldest = min_dq[0]
+            wait_until = oldest + 60
+            return max(0, int(wait_until - now))
 
         return 0
 
     def _cleanup_empty(self) -> None:
         """Remove entries for users with no recent activity."""
-        empty_minute = [uid for uid, ts in self._minute_timestamps.items() if not ts]
-        for uid in empty_minute:
+        empty = [uid for uid, dq in self._minute_timestamps.items() if not dq]
+        for uid in empty:
             del self._minute_timestamps[uid]
-        empty_hour = [uid for uid, ts in self._hour_timestamps.items() if not ts]
-        for uid in empty_hour:
-            del self._hour_timestamps[uid]
+            self._hour_timestamps.pop(uid, None)
