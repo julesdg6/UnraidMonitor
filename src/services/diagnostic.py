@@ -222,6 +222,7 @@ Respond with 2-3 sentences: What happened, the likely cause, and how to fix it. 
         Returns:
             Detailed analysis or None if no pending context.
         """
+        self._cleanup_stale()
         if not self.has_pending(user_id):
             return None
 

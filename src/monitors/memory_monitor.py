@@ -113,6 +113,7 @@ class MemoryMonitor:
                 await self._handle_critical(percent)
             elif percent < self._config.warning_threshold:
                 self._state = MemoryState.NORMAL
+                self._killed_containers.clear()
                 logger.info("Memory returned to normal levels")
 
         elif self._state == MemoryState.CRITICAL:

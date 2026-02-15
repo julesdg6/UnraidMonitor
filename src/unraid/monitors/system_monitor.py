@@ -116,6 +116,12 @@ class UnraidSystemMonitor:
                 alert_type="server",
             )
 
+        # Clean stale alert cooldowns
+        stale_cutoff = time.monotonic() - (_ALERT_COOLDOWN * 2)
+        stale_keys = [k for k, t in self._last_alert_times.items() if t < stale_cutoff]
+        for k in stale_keys:
+            del self._last_alert_times[k]
+
         return metrics
 
     async def _rate_limited_alert(self, key: str, **kwargs) -> None:

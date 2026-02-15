@@ -373,6 +373,30 @@ class TestKillCountdown:
         assert result is False
 
 
+class TestKilledContainersClearOnRecovery:
+    @pytest.mark.asyncio
+    async def test_killed_containers_cleared_on_normal_recovery(
+        self, memory_config, mock_docker_client, mock_on_alert, mock_on_ask_restart
+    ):
+        """Killed containers list should be cleared when state returns to NORMAL."""
+        monitor = MemoryMonitor(
+            docker_client=mock_docker_client,
+            config=memory_config,
+            on_alert=mock_on_alert,
+            on_ask_restart=mock_on_ask_restart,
+        )
+
+        monitor._state = MemoryState.WARNING
+        monitor._killed_containers = ["bitmagnet"]
+
+        with patch("src.monitors.memory_monitor.psutil") as mock_psutil:
+            mock_psutil.virtual_memory.return_value = MagicMock(percent=70.0)
+            await monitor._check_memory()
+
+        assert monitor._state == MemoryState.NORMAL
+        assert monitor._killed_containers == []
+
+
 class TestRestartHandling:
     @pytest.mark.asyncio
     async def test_confirm_restart_starts_container(
