@@ -1,8 +1,10 @@
 """Haiku-based pattern analyzer for generating ignore patterns."""
 
+import hashlib
 import json
 import logging
 import re
+import time
 from typing import TYPE_CHECKING
 
 from src.utils.api_errors import handle_anthropic_error
@@ -38,6 +40,8 @@ Guidelines:
 class PatternAnalyzer:
     """Uses Claude Haiku to analyze errors and generate ignore patterns."""
 
+    _CACHE_TTL = 3600  # 1 hour
+
     def __init__(
         self,
         anthropic_client: "anthropic.AsyncAnthropic | None",
@@ -49,6 +53,7 @@ class PatternAnalyzer:
         self._model = model
         self._max_tokens = max_tokens
         self._context_lines = context_lines
+        self._cache: dict[str, tuple[float, dict]] = {}
 
     async def analyze_error(
         self,
@@ -64,6 +69,12 @@ class PatternAnalyzer:
         if self._client is None:
             logger.warning("No Anthropic client available for pattern analysis")
             return None
+
+        # Check cache
+        cache_key = hashlib.md5(f"{container}:{error_message}".encode()).hexdigest()
+        cached = self._cache.get(cache_key)
+        if cached and (time.monotonic() - cached[0]) < self._CACHE_TTL:
+            return cached[1]
 
         logs_text = "\n".join(recent_logs[-self._context_lines:]) if recent_logs else "(no recent logs)"
 
@@ -111,6 +122,9 @@ class PatternAnalyzer:
                 except re.error as e:
                     logger.warning(f"Invalid regex from Haiku, falling back to substring: {e}")
                     result["match_type"] = "substring"
+
+            # Cache the result
+            self._cache[cache_key] = (time.monotonic(), result)
 
             return result
 

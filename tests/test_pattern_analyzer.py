@@ -78,3 +78,71 @@ class TestPatternAnalyzer:
         )
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_analyze_error_caches_results(self):
+        """Same error should return cached result without second API call."""
+        from src.analysis.pattern_analyzer import PatternAnalyzer
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"pattern": "error.*timeout", "match_type": "regex", "explanation": "Timeout errors"}')]
+        mock_client.messages.create.return_value = mock_response
+
+        analyzer = PatternAnalyzer(anthropic_client=mock_client)
+
+        result1 = await analyzer.analyze_error("plex", "Connection timeout error", [])
+        result2 = await analyzer.analyze_error("plex", "Connection timeout error", [])
+
+        assert result1 == result2
+        assert mock_client.messages.create.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_analyze_error_cache_expires(self):
+        """Expired cache entries should trigger a new API call."""
+        import time
+        from unittest.mock import patch
+        from src.analysis.pattern_analyzer import PatternAnalyzer
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"pattern": "error.*timeout", "match_type": "regex", "explanation": "Timeout errors"}')]
+        mock_client.messages.create.return_value = mock_response
+
+        analyzer = PatternAnalyzer(anthropic_client=mock_client)
+
+        result1 = await analyzer.analyze_error("plex", "Connection timeout error", [])
+
+        # Expire the cache by manipulating the stored timestamp
+        for key in analyzer._cache:
+            ts, val = analyzer._cache[key]
+            analyzer._cache[key] = (ts - PatternAnalyzer._CACHE_TTL - 1, val)
+
+        result2 = await analyzer.analyze_error("plex", "Connection timeout error", [])
+
+        assert result1 == result2
+        assert mock_client.messages.create.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_analyze_error_failed_result_not_cached(self):
+        """Failed analyses (returning None) should not be cached."""
+        from src.analysis.pattern_analyzer import PatternAnalyzer
+
+        mock_client = AsyncMock()
+        # First call: invalid JSON response
+        bad_response = MagicMock()
+        bad_response.content = [MagicMock(text='not valid json')]
+        # Second call: valid response
+        good_response = MagicMock()
+        good_response.content = [MagicMock(text='{"pattern": "err", "match_type": "substring", "explanation": "Errors"}')]
+        mock_client.messages.create.side_effect = [bad_response, good_response]
+
+        analyzer = PatternAnalyzer(anthropic_client=mock_client)
+
+        result1 = await analyzer.analyze_error("plex", "Some error", [])
+        assert result1 is None
+
+        result2 = await analyzer.analyze_error("plex", "Some error", [])
+        assert result2 is not None
+        assert result2["pattern"] == "err"
+        assert mock_client.messages.create.call_count == 2
