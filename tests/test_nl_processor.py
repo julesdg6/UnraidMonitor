@@ -59,6 +59,11 @@ class TestConversationMemory:
 
         assert memory.pending_action is None
 
+    def test_messages_is_deque(self):
+        from collections import deque
+        memory = ConversationMemory(user_id=123)
+        assert isinstance(memory.messages, deque)
+
 
 class TestMemoryStore:
     def test_get_or_create_creates_new_memory(self):
@@ -161,3 +166,15 @@ class TestNLProcessor:
         processor = NLProcessor(anthropic_client=None, tool_executor=Mock())
         result = await processor.process(user_id=123, message="hello")
         assert "not configured" in result.response.lower() or "not available" in result.response.lower()
+
+
+def test_per_user_rate_limiter_uses_deque():
+    """Rate limiter should use deque internally for O(1) eviction."""
+    from collections import deque
+    from src.utils.rate_limiter import PerUserRateLimiter
+
+    limiter = PerUserRateLimiter(max_per_minute=5, max_per_hour=20)
+    limiter.is_allowed(1)
+
+    assert isinstance(limiter._minute_timestamps[1], deque)
+    assert isinstance(limiter._hour_timestamps[1], deque)
