@@ -27,6 +27,7 @@ class BaseMuteManager:
         self._mutes: dict[str, datetime] = {}
         self._lock = threading.RLock()
         self._load()
+        self._dirty = False
 
     def _is_muted(self, key: str) -> bool:
         """Check if a key is currently muted.
@@ -87,14 +88,21 @@ class BaseMuteManager:
             return [(key, exp) for key, exp in self._mutes.items()]
 
     def _clean_expired(self) -> None:
-        """Remove expired mutes."""
+        """Remove expired mutes from memory. Does not save to disk immediately."""
         with self._lock:
             now = datetime.now()
             expired = [key for key, exp in self._mutes.items() if now >= exp]
             for key in expired:
                 del self._mutes[key]
             if expired:
+                self._dirty = True
+
+    def flush(self) -> None:
+        """Persist deferred changes to disk if dirty."""
+        with self._lock:
+            if self._dirty:
                 self._save()
+                self._dirty = False
 
     def _load(self) -> None:
         """Load mutes from JSON file."""
@@ -136,6 +144,7 @@ class BaseMuteManager:
                     with os.fdopen(fd, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=2)
                     os.replace(temp_path, self._json_path)  # Atomic on POSIX
+                    self._dirty = False
                 except Exception:
                     # Clean up temp file on error
                     try:

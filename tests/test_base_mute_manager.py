@@ -100,6 +100,24 @@ class TestBaseMuteManagerPersistence:
         # Should start with empty mutes
         assert manager.get_active_mutes() == []
 
+    def test_clean_expired_does_not_save_immediately(self, tmp_path):
+        """Automated cleanup should not trigger immediate disk write."""
+        import unittest.mock
+        json_file = tmp_path / "mutes.json"
+        manager = ConcreteMuteManager(json_path=str(json_file))
+
+        # Add a mute that's already expired
+        manager._mutes["expired"] = datetime.now() - timedelta(hours=1)
+        manager._save()  # Save to disk first
+
+        # Track save calls
+        with unittest.mock.patch.object(manager, '_save') as mock_save:
+            manager.get_active_mutes()  # Triggers _clean_expired
+            mock_save.assert_not_called()
+
+        # But the mute should be removed from memory
+        assert "expired" not in manager._mutes
+
     def test_persistence_survives_restart(self, tmp_path):
         """Test that mutes persist across manager restarts."""
         json_file = tmp_path / "mutes.json"
