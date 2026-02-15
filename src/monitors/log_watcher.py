@@ -21,7 +21,7 @@ def matches_error_pattern(
     error_patterns: list[str],
     ignore_patterns: list[str],
     *,
-    _cache: dict[tuple[int, int], tuple[list[str], list[str]]] = {},
+    _cache: dict[tuple[tuple[str, ...], tuple[str, ...]], tuple[list[str], list[str]]] = {},
 ) -> bool:
     """Check if a log line matches any error pattern and no ignore pattern."""
     # Skip the bot's own Python log output to prevent self-monitoring loops
@@ -31,7 +31,7 @@ def matches_error_pattern(
     line_lower = line.lower()
 
     # Cache lowercased patterns (keyed by id of the original lists)
-    cache_key = (id(error_patterns), id(ignore_patterns))
+    cache_key = (tuple(error_patterns), tuple(ignore_patterns))
     if cache_key not in _cache:
         _cache[cache_key] = (
             [p.lower() for p in error_patterns],

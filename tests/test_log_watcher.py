@@ -190,6 +190,27 @@ async def test_log_watcher_respects_ignore_manager():
     )
 
 
+def test_matches_error_pattern_cache_survives_list_rebuild():
+    """Cache should work with new list objects containing identical patterns."""
+    from src.monitors.log_watcher import matches_error_pattern
+
+    errors1 = ["error", "fatal"]
+    ignores1 = ["debug"]
+
+    result1 = matches_error_pattern("something error happened", errors1, ignores1)
+    assert result1 is True
+
+    # Create NEW list objects with SAME content (simulates config reload)
+    errors2 = list(errors1)
+    ignores2 = list(ignores1)
+
+    # id() would differ for new objects; tuple() should match
+    assert id(errors1) != id(errors2)
+
+    result2 = matches_error_pattern("something error happened", errors2, ignores2)
+    assert result2 is True
+
+
 def test_log_watcher_accepts_ignore_manager_and_buffer():
     """Test LogWatcher constructor accepts new parameters."""
     from src.monitors.log_watcher import LogWatcher
