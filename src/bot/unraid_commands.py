@@ -1,5 +1,6 @@
 """Unraid server monitoring commands."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Callable, Awaitable, TYPE_CHECKING
@@ -86,7 +87,11 @@ async def format_server_detailed(system_monitor: "UnraidSystemMonitor") -> str |
     Returns:
         Formatted string or None if unavailable.
     """
-    metrics = await system_monitor.get_current_metrics()
+    # Fetch metrics and array status in parallel
+    metrics, array = await asyncio.gather(
+        system_monitor.get_current_metrics(),
+        system_monitor.get_array_status(),
+    )
 
     if not metrics:
         return None
@@ -109,9 +114,6 @@ async def format_server_detailed(system_monitor: "UnraidSystemMonitor") -> str |
         f"\n*Memory:* {memory:.1f}% ({memory_gb:.1f} GB)",
         f"\n*Uptime:* {uptime}",
     ])
-
-    # Get array status
-    array = await system_monitor.get_array_status()
     if array:
         state = array.get("state", "Unknown")
         capacity_kb = array.get("capacity", {}).get("kilobytes", {})

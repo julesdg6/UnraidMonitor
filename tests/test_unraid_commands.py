@@ -123,6 +123,7 @@ async def test_server_command_not_connected():
 
     mock_monitor = MagicMock()
     mock_monitor.get_current_metrics = AsyncMock(return_value=None)
+    mock_monitor.get_array_status = AsyncMock(return_value=None)
 
     handler = server_command(mock_monitor)
 
