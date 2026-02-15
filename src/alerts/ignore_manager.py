@@ -4,6 +4,7 @@ import os
 import re
 import tempfile
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -111,7 +112,22 @@ class IgnoreManager:
         self._json_path = Path(json_path)
         self._runtime_ignores: dict[str, list[IgnorePattern]] = {}
         self._lock = threading.RLock()
+        self._defer_save = False
         self._load_runtime_ignores()
+
+    @contextmanager
+    def batch_updates(self):
+        """Context manager to defer saves during bulk operations.
+
+        While inside the batch, add/remove calls skip writing to disk.
+        A single save is performed when the block exits (even on error).
+        """
+        self._defer_save = True
+        try:
+            yield
+        finally:
+            self._defer_save = False
+            self._save_runtime_ignores()
 
     def is_ignored(self, container: str, message: str) -> bool:
         """Check if message should be ignored."""
@@ -169,7 +185,8 @@ class IgnoreManager:
                 added=datetime.now().isoformat(),
             )
             self._runtime_ignores[container].append(ignore_pattern)
-            self._save_runtime_ignores()
+            if not self._defer_save:
+                self._save_runtime_ignores()
             logger.info(f"Added ignore for {container}: {pattern} ({match_type})")
             return True, "Pattern added"
 
@@ -258,7 +275,8 @@ class IgnoreManager:
             if not patterns:
                 del self._runtime_ignores[container]
 
-            self._save_runtime_ignores()
+            if not self._defer_save:
+                self._save_runtime_ignores()
             return True
 
     def _load_runtime_ignores(self) -> None:
