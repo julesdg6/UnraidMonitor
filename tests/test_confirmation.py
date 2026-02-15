@@ -76,3 +76,19 @@ def test_confirmation_manager_users_independent():
 
     assert pending_123.container_name == "radarr"
     assert pending_456.container_name == "sonarr"
+
+
+def test_cleanup_does_not_run_every_request():
+    """Cleanup should only run periodically, not on every request()."""
+    from unittest.mock import patch
+    from src.bot.confirmation import ConfirmationManager
+
+    manager = ConfirmationManager(timeout_seconds=60)
+
+    with patch.object(manager, '_cleanup_expired') as mock_cleanup:
+        # Rapid calls should not all trigger cleanup
+        for i in range(11):
+            manager.request(i, "restart", "plex")
+
+        # Should NOT have called cleanup 11 times
+        assert mock_cleanup.call_count < 6

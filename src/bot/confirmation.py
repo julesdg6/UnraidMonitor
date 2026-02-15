@@ -1,5 +1,8 @@
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+_CLEANUP_INTERVAL = 60
 
 
 @dataclass
@@ -16,19 +19,28 @@ class ConfirmationManager:
     def __init__(self, timeout_seconds: int = 60):
         self.timeout_seconds = timeout_seconds
         self._pending: dict[int, PendingConfirmation] = {}
+        self._last_cleanup: float = 0.0
 
     def request(self, user_id: int, action: str, container_name: str) -> None:
         """Store a pending confirmation for a user.
 
         Replaces any existing pending confirmation for this user.
         """
-        self._cleanup_expired()
+        self._maybe_cleanup()
         expires_at = datetime.now() + timedelta(seconds=self.timeout_seconds)
         self._pending[user_id] = PendingConfirmation(
             action=action,
             container_name=container_name,
             expires_at=expires_at,
         )
+
+    def _maybe_cleanup(self) -> None:
+        """Run cleanup at most once per interval."""
+        now = time.monotonic()
+        if now - self._last_cleanup < _CLEANUP_INTERVAL:
+            return
+        self._last_cleanup = now
+        self._cleanup_expired()
 
     def _cleanup_expired(self) -> None:
         """Remove all expired entries."""
