@@ -249,12 +249,29 @@ class NLProcessor:
         tools = self._get_cached_tools()
         pending_action = None
 
+        # Use structured system prompt with cache_control for prompt caching
+        system_with_cache = [
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+        # Add cache_control to last tool definition for caching
+        cached_tools = list(tools)
+        if cached_tools:
+            cached_tools[-1] = {
+                **cached_tools[-1],
+                "cache_control": {"type": "ephemeral"},
+            }
+
         # Initial API call
         response = await self._anthropic.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
-            system=SYSTEM_PROMPT,
-            tools=tools,
+            system=system_with_cache,
+            tools=cached_tools,
             messages=messages,
         )
 
@@ -293,8 +310,8 @@ class NLProcessor:
             response = await self._anthropic.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
-                system=SYSTEM_PROMPT,
-                tools=tools,
+                system=system_with_cache,
+                tools=cached_tools,
                 messages=messages,
             )
 
