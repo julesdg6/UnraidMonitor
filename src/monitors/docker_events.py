@@ -146,16 +146,22 @@ class DockerEventMonitor:
         self._client = docker.DockerClient(base_url=self._docker_socket_path)
         logger.info("Connected to Docker socket")
 
-    def load_initial_state(self) -> None:
+    def load_initial_state(self, containers: list | None = None) -> None:
         """Load all containers into state manager.
 
-        Note: This method makes blocking Docker API calls. When called from an
-        async context, wrap in asyncio.to_thread().
+        Args:
+            containers: Optional pre-fetched container list to avoid a
+                        duplicate ``containers.list(all=True)`` call.
+
+        Note: This method makes blocking Docker API calls when *containers* is
+        not provided. When called from an async context, wrap in
+        asyncio.to_thread().
         """
         if not self._client:
             raise RuntimeError("Not connected to Docker")
 
-        containers = self._client.containers.list(all=True)
+        if containers is None:
+            containers = self._client.containers.list(all=True)
         for container in containers:
             if container.name not in self.ignored_containers:
                 info = parse_container(container)
@@ -220,13 +226,14 @@ class DockerEventMonitor:
 
         self._client = docker.DockerClient(base_url=self._docker_socket_path)
 
-        # Clear stale state before reloading to prevent ghost containers
-        current_names = {c.name for c in self._client.containers.list(all=True)}
+        # Fetch container list once and reuse
+        containers = self._client.containers.list(all=True)
+        current_names = {c.name for c in containers}
         for name in list(self.state_manager.get_all_names()):
             if name not in current_names:
                 self.state_manager.remove(name)
 
-        self.load_initial_state()
+        self.load_initial_state(containers=containers)
         logger.info("Docker reconnection successful")
 
     async def _process_alerts(self) -> None:
