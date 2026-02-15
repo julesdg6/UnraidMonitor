@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -160,6 +161,8 @@ class ResourceMonitor:
         self._mute_manager = mute_manager
         self._violations: dict[str, dict[str, ViolationState]] = {}
         self._running = False
+        self._stats_semaphore = asyncio.Semaphore(10)
+        self._last_cleanup: float = 0.0
 
     @property
     def is_enabled(self) -> bool:
@@ -177,12 +180,13 @@ class ResourceMonitor:
         containers = self._docker.containers.list(filters={"status": "running"})
 
         async def fetch_one(container) -> ContainerStats | None:
-            try:
-                raw_stats = await asyncio.to_thread(container.stats, stream=False)
-                return parse_container_stats(container.name, raw_stats)
-            except Exception as e:
-                logger.warning(f"Failed to get stats for {container.name}: {e}")
-                return None
+            async with self._stats_semaphore:
+                try:
+                    raw_stats = await asyncio.to_thread(container.stats, stream=False)
+                    return parse_container_stats(container.name, raw_stats)
+                except Exception as e:
+                    logger.warning(f"Failed to get stats for {container.name}: {e}")
+                    return None
 
         results = await asyncio.gather(*(fetch_one(c) for c in containers))
         return [s for s in results if s is not None]
@@ -365,8 +369,10 @@ class ResourceMonitor:
 
     async def _poll_cycle(self) -> None:
         """Execute one polling cycle."""
-        # Periodically clean up stale rate limiter entries to prevent memory leak
-        self._rate_limiter.cleanup_stale()
+        now = time.monotonic()
+        if now - self._last_cleanup > 300:
+            self._last_cleanup = now
+            self._rate_limiter.cleanup_stale()
 
         stats_list = await self.get_all_stats()
         active_names = {s.name for s in stats_list}
