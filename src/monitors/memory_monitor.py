@@ -58,6 +58,7 @@ class MemoryMonitor:
         self._running = False
         self._pending_kill: str | None = None
         self._kill_cancel_event: asyncio.Event | None = None
+        self._restart_prompted = False
 
     def is_enabled(self) -> bool:
         """Check if memory monitoring is enabled."""
@@ -114,6 +115,7 @@ class MemoryMonitor:
             elif percent < self._config.warning_threshold:
                 self._state = MemoryState.NORMAL
                 self._killed_containers.clear()
+                self._restart_prompted = False
                 logger.info("Memory returned to normal levels")
 
         elif self._state == MemoryState.CRITICAL:
@@ -124,8 +126,9 @@ class MemoryMonitor:
                     self._state = MemoryState.NORMAL
 
         elif self._state == MemoryState.RECOVERING:
-            if percent <= self._config.safe_threshold and self._killed_containers:
+            if percent <= self._config.safe_threshold and self._killed_containers and not self._restart_prompted:
                 container = self._killed_containers[0]
+                self._restart_prompted = True
                 await self._on_ask_restart(container)
 
     async def _handle_warning(self, percent: float) -> None:
@@ -244,6 +247,7 @@ class MemoryMonitor:
             container = self._docker.containers.get(name)
             await asyncio.to_thread(container.start)
             self._killed_containers.remove(name)
+            self._restart_prompted = False
             logger.info(f"Restarted container {name}")
 
             if not self._killed_containers:
@@ -259,6 +263,8 @@ class MemoryMonitor:
         if name in self._killed_containers:
             self._killed_containers.remove(name)
             logger.info(f"User declined restart of {name}")
+
+        self._restart_prompted = False
 
         if not self._killed_containers:
             self._state = MemoryState.NORMAL

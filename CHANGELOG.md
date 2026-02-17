@@ -2,6 +2,12 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.8.3] - 2026-02-17
+
+### Fixed
+- **Memory restart prompt spam** - After killing a container for memory pressure, the "Restart X?" prompt was sent every 10 seconds instead of once, flooding the chat with duplicate messages
+- **Memory restart buttons missing** - The restart prompt was plain text with no interactive buttons, so users couldn't actually accept or decline the restart. Added Yes/No inline keyboard buttons that properly confirm or decline the restart
+
 ## [0.8.2] - 2026-02-12
 
 ### Fixed

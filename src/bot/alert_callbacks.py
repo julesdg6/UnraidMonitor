@@ -372,3 +372,83 @@ def mem_cancel_kill_callback(
             await callback.answer("No pending kill to cancel")
 
     return handler
+
+
+def mem_restart_yes_callback(
+    memory_monitor: "MemoryMonitor",
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for memory restart Yes button callback handler."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        if not callback.data:
+            return
+
+        parts = callback.data.split(":", 1)
+        if len(parts) < 2:
+            await callback.answer("Invalid callback data")
+            return
+
+        container_name = parts[1]
+
+        if not _validate_container_name(container_name):
+            logger.warning(f"Invalid container name in mem_restart_yes callback: {container_name[:50]}")
+            await callback.answer("Invalid container name")
+            return
+
+        await callback.answer(f"Restarting {container_name}...")
+
+        success = await memory_monitor.confirm_restart(container_name)
+
+        if callback.message:
+            if success:
+                # Edit the original message to show the result
+                try:
+                    await callback.message.edit_text(
+                        f"💾 Restarted {container_name} after memory recovery."
+                    )
+                except TelegramBadRequest:
+                    await callback.message.answer(f"✅ Restarted {container_name}.")
+            else:
+                try:
+                    await callback.message.edit_text(
+                        f"❌ Failed to restart {container_name}. It may need manual attention."
+                    )
+                except TelegramBadRequest:
+                    await callback.message.answer(f"❌ Failed to restart {container_name}.")
+
+    return handler
+
+
+def mem_restart_no_callback(
+    memory_monitor: "MemoryMonitor",
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for memory restart No button callback handler."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        if not callback.data:
+            return
+
+        parts = callback.data.split(":", 1)
+        if len(parts) < 2:
+            await callback.answer("Invalid callback data")
+            return
+
+        container_name = parts[1]
+
+        if not _validate_container_name(container_name):
+            logger.warning(f"Invalid container name in mem_restart_no callback: {container_name[:50]}")
+            await callback.answer("Invalid container name")
+            return
+
+        await memory_monitor.decline_restart(container_name)
+        await callback.answer(f"Won't restart {container_name}")
+
+        if callback.message:
+            try:
+                await callback.message.edit_text(
+                    f"💾 Declined restart of {container_name}. It will stay stopped."
+                )
+            except TelegramBadRequest:
+                await callback.message.answer(f"Won't restart {container_name}.")
+
+    return handler

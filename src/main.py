@@ -439,11 +439,20 @@ async def start_monitoring(
             )
 
         async def on_ask_restart(container: str) -> None:
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
             chat_id = chat_id_store.get_chat_id()
             if chat_id:
                 text = f"💾 Memory now at safe levels. Restart {container}?"
-                # TODO: Add inline keyboard with Yes/No buttons
-                await bot.send_message(chat_id, text)
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Yes", callback_data=f"mem_restart_yes:{container}"),
+                        InlineKeyboardButton(text="❌ No", callback_data=f"mem_restart_no:{container}"),
+                    ]
+                ])
+                await send_with_retry(
+                    bot.send_message, chat_id=chat_id, text=text, reply_markup=keyboard
+                )
 
         memory_monitor = MemoryMonitor(
             docker_client=monitor._client,
