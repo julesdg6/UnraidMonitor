@@ -415,7 +415,7 @@ def register_commands(
         # Register memory kill button callbacks
         if memory_monitor is not None:
             dp.callback_query.register(
-                mem_kill_callback(memory_monitor),
+                mem_kill_callback(memory_monitor, protected_containers=protected_containers),
                 F.data.startswith("mem_kill:"),
             )
             dp.callback_query.register(

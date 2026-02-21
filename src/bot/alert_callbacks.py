@@ -319,8 +319,10 @@ def mute_callback(
 
 def mem_kill_callback(
     memory_monitor: "MemoryMonitor",
+    protected_containers: list[str] | None = None,
 ) -> Callable[[CallbackQuery], Awaitable[None]]:
     """Factory for memory kill button callback handler."""
+    _protected = set(protected_containers or [])
 
     async def handler(callback: CallbackQuery) -> None:
         if not callback.data:
@@ -337,6 +339,10 @@ def mem_kill_callback(
         if not _validate_container_name(container_name):
             logger.warning(f"Invalid container name in mem_kill callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
+            return
+
+        if container_name in _protected:
+            await callback.answer(f"{container_name} is a protected container")
             return
 
         await callback.answer(f"Stopping {container_name}...")

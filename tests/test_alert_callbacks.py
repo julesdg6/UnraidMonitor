@@ -472,3 +472,66 @@ class TestMuteCallback:
         await handler(mock_callback)
 
         mute_manager.add_mute.assert_called_once_with("plex", timedelta(minutes=60))
+
+
+class TestMemKillCallback:
+    """Tests for mem_kill_callback with protected container support."""
+
+    @pytest.mark.asyncio
+    async def test_mem_kill_protected_container_rejected(self):
+        from src.bot.alert_callbacks import mem_kill_callback
+
+        memory_monitor = MagicMock()
+        memory_monitor.kill_container = AsyncMock()
+
+        handler = mem_kill_callback(memory_monitor, protected_containers=["plex"])
+
+        callback = MagicMock()
+        callback.data = "mem_kill:plex"
+        callback.answer = AsyncMock()
+        callback.message = MagicMock()
+        callback.message.answer = AsyncMock()
+
+        await handler(callback)
+
+        callback.answer.assert_called_with("plex is a protected container")
+        memory_monitor.kill_container.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mem_kill_unprotected_container_proceeds(self):
+        from src.bot.alert_callbacks import mem_kill_callback
+
+        memory_monitor = MagicMock()
+        memory_monitor.kill_container = AsyncMock(return_value=True)
+
+        handler = mem_kill_callback(memory_monitor, protected_containers=["mariadb"])
+
+        callback = MagicMock()
+        callback.data = "mem_kill:plex"
+        callback.answer = AsyncMock()
+        callback.message = MagicMock()
+        callback.message.answer = AsyncMock()
+
+        await handler(callback)
+
+        memory_monitor.kill_container.assert_called_once_with("plex")
+
+    @pytest.mark.asyncio
+    async def test_mem_kill_no_protected_list(self):
+        from src.bot.alert_callbacks import mem_kill_callback
+
+        memory_monitor = MagicMock()
+        memory_monitor.kill_container = AsyncMock(return_value=True)
+
+        # No protected_containers arg — should proceed
+        handler = mem_kill_callback(memory_monitor)
+
+        callback = MagicMock()
+        callback.data = "mem_kill:plex"
+        callback.answer = AsyncMock()
+        callback.message = MagicMock()
+        callback.message.answer = AsyncMock()
+
+        await handler(callback)
+
+        memory_monitor.kill_container.assert_called_once_with("plex")
