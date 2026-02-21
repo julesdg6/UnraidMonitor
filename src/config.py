@@ -166,10 +166,10 @@ class ResourceConfig:
         defaults = data.get("defaults", {})
         return cls(
             enabled=data.get("enabled", True),
-            poll_interval_seconds=data.get("poll_interval_seconds", 60),
-            sustained_threshold_seconds=data.get("sustained_threshold_seconds", 120),
-            default_cpu_percent=defaults.get("cpu_percent", 80),
-            default_memory_percent=defaults.get("memory_percent", 85),
+            poll_interval_seconds=max(data.get("poll_interval_seconds", 60), 10),
+            sustained_threshold_seconds=max(data.get("sustained_threshold_seconds", 120), 10),
+            default_cpu_percent=max(min(defaults.get("cpu_percent", 80), 100), 1),
+            default_memory_percent=max(min(defaults.get("memory_percent", 85), 100), 1),
             container_overrides=data.get("containers", {}),
         )
 
@@ -202,11 +202,11 @@ class MemoryConfig:
     def from_dict(cls, data: dict) -> "MemoryConfig":
         return cls(
             enabled=data.get("enabled", False),
-            warning_threshold=data.get("warning_threshold", 90),
-            critical_threshold=data.get("critical_threshold", 95),
-            safe_threshold=data.get("safe_threshold", 80),
-            kill_delay_seconds=data.get("kill_delay_seconds", 60),
-            stabilization_wait=data.get("stabilization_wait", 180),
+            warning_threshold=max(min(data.get("warning_threshold", 90), 99), 50),
+            critical_threshold=max(min(data.get("critical_threshold", 95), 100), 60),
+            safe_threshold=max(min(data.get("safe_threshold", 80), 95), 30),
+            kill_delay_seconds=max(data.get("kill_delay_seconds", 60), 10),
+            stabilization_wait=max(data.get("stabilization_wait", 180), 10),
             priority_containers=data.get("priority_containers", []),
             killable_containers=data.get("killable_containers", []),
         )

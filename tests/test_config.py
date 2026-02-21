@@ -261,6 +261,71 @@ def test_generated_config_is_valid_yaml(tmp_path):
     assert "unraid" in parsed
 
 
+class TestConfigValidation:
+    """Tests for config value clamping/validation."""
+
+    def test_resource_config_zero_poll_interval_clamped(self):
+        from src.config import ResourceConfig
+        cfg = ResourceConfig.from_dict({"poll_interval_seconds": 0})
+        assert cfg.poll_interval_seconds >= 10
+
+    def test_resource_config_negative_poll_interval_clamped(self):
+        from src.config import ResourceConfig
+        cfg = ResourceConfig.from_dict({"poll_interval_seconds": -5})
+        assert cfg.poll_interval_seconds >= 10
+
+    def test_resource_config_zero_sustained_threshold_clamped(self):
+        from src.config import ResourceConfig
+        cfg = ResourceConfig.from_dict({"sustained_threshold_seconds": 0})
+        assert cfg.sustained_threshold_seconds >= 10
+
+    def test_resource_config_negative_cpu_threshold_clamped(self):
+        from src.config import ResourceConfig
+        cfg = ResourceConfig.from_dict({"defaults": {"cpu_percent": -5}})
+        assert cfg.default_cpu_percent >= 1
+
+    def test_resource_config_excessive_cpu_threshold_clamped(self):
+        from src.config import ResourceConfig
+        cfg = ResourceConfig.from_dict({"defaults": {"cpu_percent": 200}})
+        assert cfg.default_cpu_percent <= 100
+
+    def test_resource_config_negative_memory_threshold_clamped(self):
+        from src.config import ResourceConfig
+        cfg = ResourceConfig.from_dict({"defaults": {"memory_percent": -1}})
+        assert cfg.default_memory_percent >= 1
+
+    def test_memory_config_zero_kill_delay_clamped(self):
+        from src.config import MemoryConfig
+        cfg = MemoryConfig.from_dict({"kill_delay_seconds": 0})
+        assert cfg.kill_delay_seconds >= 10
+
+    def test_memory_config_warning_below_minimum_clamped(self):
+        from src.config import MemoryConfig
+        cfg = MemoryConfig.from_dict({"warning_threshold": 10})
+        assert cfg.warning_threshold >= 50
+
+    def test_memory_config_warning_above_maximum_clamped(self):
+        from src.config import MemoryConfig
+        cfg = MemoryConfig.from_dict({"warning_threshold": 100})
+        assert cfg.warning_threshold <= 99
+
+    def test_memory_config_critical_below_minimum_clamped(self):
+        from src.config import MemoryConfig
+        cfg = MemoryConfig.from_dict({"critical_threshold": 10})
+        assert cfg.critical_threshold >= 60
+
+    def test_memory_config_valid_values_unchanged(self):
+        from src.config import ResourceConfig, MemoryConfig
+        rc = ResourceConfig.from_dict({"poll_interval_seconds": 60, "defaults": {"cpu_percent": 80}})
+        assert rc.poll_interval_seconds == 60
+        assert rc.default_cpu_percent == 80
+
+        mc = MemoryConfig.from_dict({"kill_delay_seconds": 60, "warning_threshold": 90, "critical_threshold": 95})
+        assert mc.kill_delay_seconds == 60
+        assert mc.warning_threshold == 90
+        assert mc.critical_threshold == 95
+
+
 def test_generated_config_loads_all_sections(tmp_path):
     """Test that all config sections load properly from generated config."""
     import os
