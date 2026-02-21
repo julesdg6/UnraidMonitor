@@ -1,6 +1,7 @@
 """Input sanitization utilities for AI prompt injection prevention."""
 
 import re
+import unicodedata
 
 
 # Pre-compile patterns for performance
@@ -25,6 +26,9 @@ _INJECTION_PATTERNS = [
     (re.compile(r"<!--.*?-->", re.DOTALL), ""),
 ]
 
+# Zero-width and invisible characters used to evade pattern detection
+_ZERO_WIDTH = re.compile(r"[\u200b\u200c\u200d\u00ad\ufeff\u2060\u180e]")
+
 # Maximum length per line to prevent single-line flooding
 _MAX_LINE_LENGTH = 1000
 
@@ -44,6 +48,11 @@ def sanitize_for_prompt(text: str, max_length: int = 10000) -> str:
     """
     if not text:
         return ""
+
+    # Strip zero-width characters that could bypass pattern detection
+    text = _ZERO_WIDTH.sub("", text)
+    # Normalize Unicode (fullwidth → ASCII, etc.)
+    text = unicodedata.normalize("NFKC", text)
 
     # Truncate individual lines to prevent single-line flooding
     lines = text.split("\n")
