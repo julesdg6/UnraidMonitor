@@ -1,11 +1,11 @@
-"""Tests for Anthropic API error handling utilities."""
+"""Tests for LLM API error handling utilities."""
 
 import logging
 from unittest.mock import MagicMock
 
 import pytest
 
-from src.utils.api_errors import handle_anthropic_error, APIErrorResult
+from src.utils.api_errors import handle_anthropic_error, handle_llm_error, APIErrorResult
 
 
 class TestHandleAnthropicError:
@@ -118,3 +118,91 @@ class TestAPIErrorResult:
             log_level=logging.WARNING,
         )
         assert result.log_level == logging.WARNING
+
+
+class TestHandleLLMError:
+    """Tests for handle_llm_error with OpenAI errors and backward compatibility."""
+
+    def test_handle_openai_rate_limit(self):
+        """OpenAI rate limit errors return retryable result with rate limit message."""
+        try:
+            import openai
+
+            error = openai.RateLimitError(
+                message="Rate limit exceeded",
+                response=MagicMock(),
+                body=None,
+            )
+            result = handle_llm_error(error)
+
+            assert result.is_retryable is True
+            assert "rate limit" in result.user_message.lower()
+            assert result.log_level == logging.WARNING
+        except ImportError:
+            pytest.skip("openai module not available")
+
+    def test_handle_openai_auth_error(self):
+        """OpenAI authentication errors return non-retryable result."""
+        try:
+            import openai
+
+            error = openai.AuthenticationError(
+                message="Invalid API key",
+                response=MagicMock(),
+                body=None,
+            )
+            result = handle_llm_error(error)
+
+            assert result.is_retryable is False
+            assert "authentication" in result.user_message.lower()
+            assert result.log_level == logging.ERROR
+        except ImportError:
+            pytest.skip("openai module not available")
+
+    def test_handle_openai_bad_request(self):
+        """OpenAI bad request errors return non-retryable result."""
+        try:
+            import openai
+
+            error = openai.BadRequestError(
+                message="Invalid request",
+                response=MagicMock(),
+                body=None,
+            )
+            result = handle_llm_error(error)
+
+            assert result.is_retryable is False
+            assert result.log_level == logging.ERROR
+        except ImportError:
+            pytest.skip("openai module not available")
+
+    def test_handle_openai_connection_error(self):
+        """OpenAI connection errors return retryable result."""
+        try:
+            import openai
+
+            error = openai.APIConnectionError(
+                message="Connection failed",
+                request=MagicMock(),
+            )
+            result = handle_llm_error(error)
+
+            assert result.is_retryable is True
+            assert "connect" in result.user_message.lower()
+            assert result.log_level == logging.WARNING
+        except ImportError:
+            pytest.skip("openai module not available")
+
+    def test_handle_llm_error_backward_compat(self):
+        """handle_anthropic_error is a backward-compatible alias for handle_llm_error."""
+        assert handle_anthropic_error is handle_llm_error
+
+    def test_handle_llm_error_generic(self):
+        """Generic exceptions are handled by handle_llm_error with type name in message."""
+        error = ValueError("Something went wrong")
+        result = handle_llm_error(error)
+
+        assert isinstance(result, APIErrorResult)
+        assert "unexpected error" in result.user_message.lower()
+        assert result.is_retryable is False
+        assert result.log_level == logging.ERROR

@@ -1,4 +1,4 @@
-"""Utilities for handling Anthropic API errors."""
+"""Utilities for handling LLM API errors (Anthropic and OpenAI)."""
 
 import logging
 from dataclasses import dataclass
@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import anthropic
+    import openai
 
 logger = logging.getLogger(__name__)
 
@@ -19,18 +20,18 @@ class APIErrorResult:
     log_level: int = logging.ERROR
 
 
-def handle_anthropic_error(error: Exception) -> APIErrorResult:
-    """Handle Anthropic API errors with appropriate messages.
+def handle_llm_error(error: Exception) -> APIErrorResult:
+    """Handle LLM API errors (Anthropic or OpenAI) with appropriate messages.
 
     Args:
-        error: The exception raised by the Anthropic client.
+        error: The exception raised by an LLM client.
 
     Returns:
         APIErrorResult with user-friendly message and metadata.
     """
     error_type = type(error).__name__
 
-    # Try to import anthropic error types for specific handling
+    # Try to handle Anthropic-specific errors
     try:
         import anthropic
 
@@ -83,7 +84,63 @@ def handle_anthropic_error(error: Exception) -> APIErrorResult:
             )
 
     except ImportError:
-        # anthropic module not available, fall through to generic handling
+        # anthropic module not available, fall through to next handler
+        pass
+
+    # Try to handle OpenAI-specific errors
+    try:
+        import openai
+
+        if isinstance(error, openai.RateLimitError):
+            logger.warning(f"OpenAI rate limit hit: {error}")
+            return APIErrorResult(
+                user_message="I'm being rate limited. Please wait a moment and try again.",
+                is_retryable=True,
+                log_level=logging.WARNING,
+            )
+
+        if isinstance(error, openai.AuthenticationError):
+            logger.error(f"OpenAI authentication error: {error}")
+            return APIErrorResult(
+                user_message="API authentication failed. Please check the API key configuration.",
+                is_retryable=False,
+                log_level=logging.ERROR,
+            )
+
+        if isinstance(error, openai.BadRequestError):
+            logger.error(f"OpenAI bad request: {error}")
+            return APIErrorResult(
+                user_message="Invalid request to AI service. This may be a bug.",
+                is_retryable=False,
+                log_level=logging.ERROR,
+            )
+
+        if isinstance(error, openai.APIConnectionError):
+            logger.warning(f"OpenAI connection error: {error}")
+            return APIErrorResult(
+                user_message="Couldn't connect to AI service. Please try again later.",
+                is_retryable=True,
+                log_level=logging.WARNING,
+            )
+
+        if isinstance(error, openai.APIStatusError):
+            logger.error(f"OpenAI API status error: {error}")
+            return APIErrorResult(
+                user_message="AI service returned an error. Please try again later.",
+                is_retryable=True,
+                log_level=logging.ERROR,
+            )
+
+        if isinstance(error, openai.APIError):
+            logger.error(f"OpenAI API error: {error}")
+            return APIErrorResult(
+                user_message="AI service error. Please try again later.",
+                is_retryable=True,
+                log_level=logging.ERROR,
+            )
+
+    except ImportError:
+        # openai module not available, fall through to generic handling
         pass
 
     # Generic error handling
@@ -93,3 +150,7 @@ def handle_anthropic_error(error: Exception) -> APIErrorResult:
         is_retryable=False,
         log_level=logging.ERROR,
     )
+
+
+# Backward-compatible alias for existing callers
+handle_anthropic_error = handle_llm_error
