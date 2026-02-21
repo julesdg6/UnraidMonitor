@@ -78,12 +78,19 @@ class AIConfig:
     # Diagnostic settings
     diagnostic_context_expiry_seconds: int = 600
 
+    # Multi-provider settings
+    default_provider: str = "anthropic"
+    default_model: str = "claude-haiku-4-5-20251001"
+    anthropic_prompt_caching: bool = True
+    ollama_host: str = "http://localhost:11434"
+
     @classmethod
     def from_dict(cls, data: dict) -> "AIConfig":
         """Create AIConfig from YAML dict."""
         models = data.get("models", {})
         max_tokens = data.get("max_tokens", {})
         nl = data.get("nl_processor", {})
+        providers = data.get("providers", {})
         return cls(
             pattern_analyzer_model=models.get("pattern_analyzer", "claude-haiku-4-5-20251001"),
             nl_processor_model=models.get("nl_processor", "claude-sonnet-4-5-20250929"),
@@ -96,6 +103,10 @@ class AIConfig:
             nl_max_conversation_exchanges=nl.get("max_conversation_exchanges", 5),
             pattern_analyzer_context_lines=data.get("pattern_analyzer_context_lines", 30),
             diagnostic_context_expiry_seconds=data.get("diagnostic_context_expiry_seconds", 600),
+            default_provider=data.get("default_provider", "anthropic"),
+            default_model=data.get("default_model", "claude-haiku-4-5-20251001"),
+            anthropic_prompt_caching=providers.get("anthropic", {}).get("prompt_caching", True),
+            ollama_host=providers.get("ollama", {}).get("host", "http://localhost:11434"),
         )
 
 
@@ -267,7 +278,9 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     telegram_allowed_users: list[int] | str  # Accept string, convert to list
     anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
     unraid_api_key: str | None = None
+    ollama_host: str | None = None
     config_path: str = "config/config.yaml"
     log_level: str = "INFO"
 
@@ -355,6 +368,16 @@ class AppConfig:
     def anthropic_api_key(self) -> str | None:
         """Get Anthropic API key."""
         return self._settings.anthropic_api_key
+
+    @property
+    def openai_api_key(self) -> str | None:
+        """Get OpenAI API key."""
+        return self._settings.openai_api_key
+
+    @property
+    def ollama_host(self) -> str | None:
+        """Get Ollama host URL from environment."""
+        return self._settings.ollama_host
 
     @property
     def log_level(self) -> str:
