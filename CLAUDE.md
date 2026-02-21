@@ -29,7 +29,14 @@ src/alerts/ignore_manager.py - IgnoreManager for ignoring regex patterns in logs
 src/alerts/recent_errors.py - RecentErrorsBuffer for tracking recent container errors
 
 # Analysis
-src/analysis/pattern_analyzer.py - Haiku-based AI pattern generation for ignores
+src/analysis/pattern_analyzer.py - AI-powered pattern generation for ignores
+
+# LLM Providers
+src/services/llm/provider.py - LLMProvider protocol, LLMResponse, ToolCall, ModelInfo
+src/services/llm/anthropic_provider.py - Anthropic Claude provider (tool use, prompt caching)
+src/services/llm/openai_provider.py - OpenAI GPT provider (function calling translation)
+src/services/llm/ollama_provider.py - Ollama local provider with model discovery
+src/services/llm/registry.py - ProviderRegistry for model selection and per-feature overrides
 
 # Bot
 src/bot/telegram_bot.py - Bot initialization, dispatcher, command registration
@@ -47,6 +54,7 @@ src/bot/health_command.py - /health command showing bot version, uptime, monitor
 src/bot/setup_wizard.py - Interactive first-run setup for Unraid and containers
 src/bot/confirmation.py - ConfirmationManager for pending control action confirmations
 src/bot/memory_commands.py - /cancel-kill command for canceling memory-based kills
+src/bot/model_command.py - /model command for runtime LLM provider/model switching
 
 # Monitors
 src/monitors/docker_events.py - DockerEventMonitor with CrashTracker for container events
@@ -67,7 +75,7 @@ src/unraid/monitors/system_monitor.py - UnraidSystemMonitor for CPU/memory/temp 
 src/unraid/monitors/array_monitor.py - ArrayMonitor for disk health and usage alerts
 
 # Utils
-src/utils/api_errors.py - Anthropic API error handling with user-friendly messages
+src/utils/api_errors.py - LLM API error handling (Anthropic + OpenAI) with user-friendly messages
 src/utils/formatting.py - Bytes/uptime formatting, container name extraction
 src/utils/rate_limiter.py - PerUserRateLimiter for per-user API rate limiting
 src/utils/sanitize.py - Prompt injection prevention, sensitive data redaction
@@ -75,7 +83,7 @@ src/utils/telegram_retry.py - Telegram API retry logic for rate limit handling
 
 ## Project Overview
 
-Unraid Server Monitor Bot (v0.8.3) - A Docker-based Telegram bot for monitoring Unraid servers. Monitors Docker containers (events, logs, resources) and Unraid server health (CPU, memory, disks, array, UPS). Uses Claude API for AI-powered diagnostics and natural language interaction. Sends alerts via Telegram with quick-action buttons.
+Unraid Server Monitor Bot (v0.8.3) - A Docker-based Telegram bot for monitoring Unraid servers. Monitors Docker containers (events, logs, resources) and Unraid server health (CPU, memory, disks, array, UPS). Uses multi-provider LLM support (Anthropic, OpenAI, Ollama) for AI-powered diagnostics and natural language interaction. Sends alerts via Telegram with quick-action buttons.
 
 ## Commands
 
@@ -120,7 +128,19 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - `AlertManagerProxy` wraps `AlertManager` to lazily resolve the Telegram chat ID (set on first `/start` command)
 - Background tasks for each monitor run concurrently via `asyncio.create_task`
 - Telegram bot uses aiogram 3.x polling
+- `ProviderRegistry` manages LLM providers (Anthropic, OpenAI, Ollama) with per-feature model overrides and JSON persistence
 - Components are passed to bot command handlers via aiogram's dependency injection
+
+### LLM Provider Architecture
+
+`ProviderRegistry` is the single source of truth for which LLM provider/model to use. AI consumers call `registry.get_provider(feature="...")` and receive a ready-to-use `LLMProvider` instance.
+
+- **`LLMProvider` protocol** (`src/services/llm/provider.py`) — normalized `chat()` interface returning `LLMResponse` with `.text`, `.stop_reason`, `.tool_calls`
+- **Provider implementations** — `AnthropicProvider`, `OpenAIProvider`, `OllamaProvider` translate the normalized interface to each SDK's format
+- **Tool call translation** — Anthropic uses `input_schema`/content blocks; OpenAI uses `function`/`parameters`; normalized via `ToolCall` dataclass
+- **Model discovery** — Ollama models discovered at startup via `/api/tags` endpoint
+- **Per-feature overrides** — `feature_models` dict in config allows different models per AI feature (e.g., cheap model for pattern analysis, capable model for NL chat)
+- **Runtime switching** — `/model` command changes the global default; persisted to `data/model_selection.json`
 
 ### Key Modules
 
@@ -148,14 +168,22 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - `alert_callbacks.py` - Quick-action button handlers on alert messages
 - `nl_handler.py` - Routes non-command text to NL processor
 - `health_command.py` - `/health` bot version, uptime, and monitor status
+- `model_command.py` - `/model` for runtime LLM provider/model switching (two-tap UI)
 - `setup_wizard.py` - Interactive first-run setup wizard and `/setup` re-run support
 
 **Services** (`src/services/`) - Business logic:
-- `nl_processor.py` - Natural language chat via Claude with tool use and conversation memory
-- `nl_tools.py` - Tool definitions (get status, read logs, restart) for Claude tool use
+- `nl_processor.py` - Natural language chat via LLM provider with tool use and conversation memory
+- `nl_tools.py` - Tool definitions (get status, read logs, restart) for LLM tool use
 - `container_control.py` - Safe container operations (name matching, protected list)
 - `container_classifier.py` - Pattern + AI classification of containers into categories
 - `diagnostic.py` - AI log analysis (brief/detailed modes)
+
+**LLM Providers** (`src/services/llm/`) - Multi-provider abstraction:
+- `provider.py` - `LLMProvider` protocol, `LLMResponse`, `ToolCall`, `ModelInfo` data types
+- `anthropic_provider.py` - Anthropic Claude (tool use via `input_schema`)
+- `openai_provider.py` - OpenAI GPT (function calling via `parameters`)
+- `ollama_provider.py` - Ollama local models with auto-discovery
+- `registry.py` - `ProviderRegistry` for model selection, per-feature overrides, persistence
 
 **Alerts** (`src/alerts/`) - Alert management layer:
 - `manager.py` + `AlertManagerProxy` (in main.py) - Format and send Telegram messages
@@ -165,13 +193,13 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - `recent_errors.py` - Buffer for `/ignore` command's error selection
 
 **Analysis** (`src/analysis/`):
-- `pattern_analyzer.py` - Uses Claude to generate smart ignore patterns from error examples
+- `pattern_analyzer.py` - Uses LLM provider to generate smart ignore patterns from error examples
 
 ### Patterns
 
 - **All async** - Every component uses async/await. Tests use `pytest-asyncio` with `asyncio_mode = "auto"`
 - **Partial name matching** - Container commands accept partial names (e.g., `/logs rad` matches `radarr`)
-- **Graceful degradation** - Bot works without `ANTHROPIC_API_KEY`; AI features just disable
+- **Graceful degradation** - Bot works without any LLM API keys; AI features just disable. Models without tool support get a note appended to NL responses
 - **JSON persistence** - Mutes and ignores stored in `data/*.json` files
 - **Protected containers** - Listed in `config.yaml`, cannot be controlled via Telegram
 - **Confirmation prompts** - Destructive actions (restart, stop, pull) require button confirmation
@@ -182,7 +210,9 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 ```bash
 TELEGRAM_BOT_TOKEN=           # Required - from @BotFather
 TELEGRAM_ALLOWED_USERS=       # Required - comma-separated Telegram user IDs (e.g., 123456,789012)
-ANTHROPIC_API_KEY=            # Optional - enables AI diagnostics, NL chat, smart ignore
+ANTHROPIC_API_KEY=            # Optional - enables AI features via Claude models
+OPENAI_API_KEY=               # Optional - enables AI features via OpenAI models
+OLLAMA_HOST=                  # Optional - Ollama server URL (default: http://localhost:11434)
 UNRAID_API_KEY=               # Optional - enables /server, /array, /disks commands
 CONFIG_PATH=                  # Optional - defaults to config/config.yaml
 LOG_LEVEL=                    # Optional - defaults to INFO

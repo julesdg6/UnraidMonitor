@@ -5,17 +5,20 @@ description: Shared utility functions for error handling, formatting, rate limit
 
 files:
   api_errors.py:
-    description: Anthropic API error handling with user-friendly messages and retryability metadata.
+    description: LLM API error handling (Anthropic + OpenAI) with user-friendly messages and retryability metadata.
     exports:
       - name: APIErrorResult
         kind: dataclass
         description: Result from API error handling with user message, retryability flag, and log level.
         methods: []
-      - name: handle_anthropic_error
+      - name: handle_llm_error
         kind: function
-        description: Handles Anthropic API errors, returning user-friendly message and retryability status.
+        description: Handles Anthropic and OpenAI API errors, returning user-friendly message and retryability status.
         params: [{name: error, type: Exception}]
         returns: APIErrorResult
+      - name: handle_anthropic_error
+        kind: function
+        description: Backward-compatible alias for handle_llm_error
     imports:
       - from: dataclasses
         items: [dataclass]
