@@ -8,6 +8,7 @@ from docker.models.containers import Container
 
 from src.models import ContainerInfo
 from src.state import ContainerStateManager
+from src.services.docker_client import SharedDockerClient
 
 if TYPE_CHECKING:
     from src.alerts.manager import AlertManager
@@ -132,6 +133,7 @@ class DockerEventMonitor:
         self.mute_manager = mute_manager
         self._docker_socket_path = docker_socket_path
         self._client: docker.DockerClient | None = None
+        self._shared_client: SharedDockerClient | None = None
         self._running = False
         # Use bounded queue to prevent memory issues under load
         self._pending_alerts: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
@@ -141,9 +143,15 @@ class DockerEventMonitor:
         self._backoff_seconds = self.INITIAL_BACKOFF_SECONDS
         self._crash_tracker = CrashTracker()
 
+    @property
+    def shared_client(self) -> SharedDockerClient | None:
+        """Get the shared Docker client wrapper for passing to other components."""
+        return self._shared_client
+
     def connect(self) -> None:
         """Connect to Docker socket."""
         self._client = docker.DockerClient(base_url=self._docker_socket_path)
+        self._shared_client = SharedDockerClient(self._client)
         logger.info("Connected to Docker socket")
 
     def load_initial_state(self, containers: list | None = None) -> None:
@@ -225,6 +233,9 @@ class DockerEventMonitor:
                 logger.debug(f"Error closing Docker client during reconnect: {e}")
 
         self._client = docker.DockerClient(base_url=self._docker_socket_path)
+        # Update the shared wrapper so all consumers see the new client
+        if self._shared_client is not None:
+            self._shared_client.replace(self._client)
 
         # Fetch container list once and reuse
         containers = self._client.containers.list(all=True)

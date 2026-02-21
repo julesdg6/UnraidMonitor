@@ -422,7 +422,7 @@ async def start_monitoring(
     resource_config = config.resource_monitoring
     if resource_config.enabled:
         resource_monitor = ResourceMonitor(
-            docker_client=monitor._client,
+            docker_client=monitor.shared_client,
             config=resource_config,
             alert_manager=alert_manager,
             rate_limiter=rate_limiter,
@@ -509,7 +509,7 @@ async def start_monitoring(
                 )
 
         memory_monitor = MemoryMonitor(
-            docker_client=monitor._client,
+            docker_client=monitor.shared_client,
             config=memory_config,
             on_alert=on_memory_alert,
             on_ask_restart=on_ask_restart,
@@ -521,13 +521,13 @@ async def start_monitoring(
     # Create NL processor if enabled
     nl_processor = None
     nl_provider = registry.get_provider("nl_processor")
-    if nl_provider and monitor._client:
+    if nl_provider and monitor.shared_client:
         from src.services.nl_processor import NLProcessor
         from src.services.nl_tools import NLToolExecutor
 
         nl_executor = NLToolExecutor(
             state=state,
-            docker_client=monitor._client,
+            docker_client=monitor.shared_client,
             protected_containers=config.protected_containers,
             controller=None,  # Will be set after register_commands
             resource_monitor=resource_monitor,
@@ -547,7 +547,7 @@ async def start_monitoring(
     confirmation, diagnostic_service = register_commands(
         dp,
         state,
-        docker_client=monitor._client,
+        docker_client=monitor.shared_client,
         protected_containers=config.protected_containers,
         registry=registry,
         resource_monitor=resource_monitor,
@@ -568,7 +568,7 @@ async def start_monitoring(
     if nl_processor and confirmation:
         # Create controller for NL executor
         from src.services.container_control import ContainerController
-        nl_controller = ContainerController(monitor._client, config.protected_containers)
+        nl_controller = ContainerController(monitor.shared_client, config.protected_containers)
         nl_processor._executor._controller = nl_controller
 
     # Store Unraid references for shutdown
