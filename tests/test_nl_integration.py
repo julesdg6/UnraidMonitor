@@ -342,3 +342,34 @@ class TestNLIntegration:
         memory = processor.memory_store.get(123)
         # Either result2 has no pending_action, or memory was cleared (result2 has None)
         assert result2.pending_action is None
+
+
+@pytest.mark.asyncio
+async def test_yes_falls_through_to_nl_when_no_pending_state():
+    """When no confirmation or diagnostic is pending, 'yes' should not be consumed by YesFilter or DetailsFilter."""
+    from unittest.mock import MagicMock
+    from src.bot.telegram_bot import YesFilter, DetailsFilter
+    from src.bot.confirmation import ConfirmationManager
+
+    # Set up filters with no pending state
+    confirmation = ConfirmationManager()
+    yes_filter = YesFilter(confirmation)
+
+    mock_diagnostic = MagicMock()
+    mock_diagnostic.has_pending.return_value = False
+    details_filter = DetailsFilter(mock_diagnostic)
+
+    # Create a "yes" message
+    message = MagicMock()
+    message.text = "yes"
+    message.from_user = MagicMock()
+    message.from_user.id = 123
+
+    # Neither filter should match
+    assert await yes_filter(message) is False
+    assert await details_filter(message) is False
+
+    # NLFilter should still match it
+    from src.bot.nl_handler import NLFilter
+    nl_filter = NLFilter()
+    assert await nl_filter(message) is True

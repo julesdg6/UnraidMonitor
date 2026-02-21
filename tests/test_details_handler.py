@@ -67,3 +67,45 @@ async def test_details_handler_ignores_when_no_pending():
 
     # Should not respond when no pending context
     message.answer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_details_filter_rejects_when_no_pending_diagnostic():
+    """DetailsFilter should NOT match when there's no pending diagnostic."""
+    from src.bot.telegram_bot import DetailsFilter
+    from src.services.diagnostic import DiagnosticService
+    from aiogram.types import Message
+
+    mock_service = MagicMock(spec=DiagnosticService)
+    mock_service.has_pending.return_value = False
+
+    filter_instance = DetailsFilter(mock_service)
+
+    message = MagicMock(spec=Message)
+    message.text = "yes"
+    message.from_user = MagicMock()
+    message.from_user.id = 123
+
+    result = await filter_instance(message)
+    assert result is False, "Should not match when no pending diagnostic"
+
+
+@pytest.mark.asyncio
+async def test_details_filter_matches_when_pending_diagnostic():
+    """DetailsFilter should match when there IS a pending diagnostic."""
+    from src.bot.telegram_bot import DetailsFilter
+    from src.services.diagnostic import DiagnosticService
+    from aiogram.types import Message
+
+    mock_service = MagicMock(spec=DiagnosticService)
+    mock_service.has_pending.return_value = True
+
+    filter_instance = DetailsFilter(mock_service)
+
+    message = MagicMock(spec=Message)
+    message.text = "more details"
+    message.from_user = MagicMock()
+    message.from_user.id = 123
+
+    result = await filter_instance(message)
+    assert result is True, "Should match when there's a pending diagnostic"

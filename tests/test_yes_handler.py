@@ -64,3 +64,42 @@ async def test_yes_filter_handles_none_text():
     message.text = None
     result = await filter_instance(message)
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_yes_filter_rejects_when_no_pending_confirmation():
+    """YesFilter should NOT match 'yes' when there's no pending confirmation."""
+    from src.bot.telegram_bot import YesFilter
+    from src.bot.confirmation import ConfirmationManager
+    from aiogram.types import Message
+
+    confirmation = ConfirmationManager()
+    filter_instance = YesFilter(confirmation)
+
+    message = MagicMock(spec=Message)
+    message.text = "yes"
+    message.from_user = MagicMock()
+    message.from_user.id = 123
+
+    result = await filter_instance(message)
+    assert result is False, "Should not match when no pending confirmation"
+
+
+@pytest.mark.asyncio
+async def test_yes_filter_matches_when_pending_confirmation():
+    """YesFilter should match 'yes' when there IS a pending confirmation."""
+    from src.bot.telegram_bot import YesFilter
+    from src.bot.confirmation import ConfirmationManager
+    from aiogram.types import Message
+
+    confirmation = ConfirmationManager()
+    confirmation.request(user_id=123, action="restart", container_name="plex")
+    filter_instance = YesFilter(confirmation)
+
+    message = MagicMock(spec=Message)
+    message.text = "yes"
+    message.from_user = MagicMock()
+    message.from_user.id = 123
+
+    result = await filter_instance(message)
+    assert result is True, "Should match when there's a pending confirmation"

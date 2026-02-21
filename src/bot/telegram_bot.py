@@ -70,23 +70,53 @@ logger = logging.getLogger(__name__)
 
 
 class YesFilter(Filter):
-    """Filter for 'yes' confirmation messages."""
+    """Filter for 'yes' confirmation messages.
+
+    Only matches when the user has a pending command confirmation
+    (from /restart, /stop, /start, /pull). When no confirmation is
+    pending, 'yes' falls through to subsequent handlers (e.g. NL).
+    """
+
+    def __init__(self, confirmation: ConfirmationManager | None = None):
+        self._confirmation = confirmation
 
     async def __call__(self, message: Message) -> bool:
         if not message.text:
             return False
-        return message.text.strip().lower() == "yes"
+        if message.text.strip().lower() != "yes":
+            return False
+        # If no confirmation manager, match unconditionally (backward compat)
+        if self._confirmation is None:
+            return True
+        # Only match if this user has a pending confirmation
+        user_id = message.from_user.id if message.from_user else 0
+        return self._confirmation.get_pending(user_id) is not None
 
 
 class DetailsFilter(Filter):
-    """Filter for 'yes', 'more', 'details' follow-up messages."""
+    """Filter for 'yes', 'more', 'details' follow-up messages.
+
+    Only matches when the user has a pending diagnostic context
+    (from /diagnose). When no context is pending, these words
+    fall through to subsequent handlers (e.g. NL).
+    """
 
     TRIGGERS = {"yes", "more", "details", "more details", "tell me more", "expand"}
+
+    def __init__(self, diagnostic_service: Any | None = None):
+        self._diagnostic_service = diagnostic_service
 
     async def __call__(self, message: Message) -> bool:
         if not message.text:
             return False
-        return message.text.strip().lower() in self.TRIGGERS
+        if message.text.strip().lower() not in self.TRIGGERS:
+            return False
+        # If no diagnostic service, match unconditionally (backward compat)
+        if self._diagnostic_service is None:
+            return True
+        # Only match if this user has a pending diagnostic context
+        user_id = message.from_user.id if message.from_user else 0
+        return self._diagnostic_service.has_pending(user_id)
 
 
 class IgnoreSelectionFilter(Filter):
@@ -247,7 +277,7 @@ def register_commands(
         # Register "yes" handler for confirmations
         dp.message.register(
             create_confirm_handler(controller, confirmation),
-            YesFilter(),
+            YesFilter(confirmation),
         )
 
         # Set up diagnostic service
@@ -273,7 +303,7 @@ def register_commands(
         # Register details follow-up handler
         dp.message.register(
             create_details_handler(diagnostic_service),
-            DetailsFilter(),
+            DetailsFilter(diagnostic_service),
         )
 
         # Register /resources command

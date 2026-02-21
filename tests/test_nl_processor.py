@@ -168,6 +168,12 @@ class TestNLProcessor:
         assert "not configured" in result.response.lower() or "not available" in result.response.lower()
 
 
+def test_system_prompt_instructs_tool_use_for_actions():
+    """System prompt should tell Claude to use tools rather than suggest actions textually."""
+    from src.services.nl_processor import SYSTEM_PROMPT
+    assert "call the appropriate tool" in SYSTEM_PROMPT.lower()
+
+
 def test_per_user_rate_limiter_uses_deque():
     """Rate limiter should use deque internally for O(1) eviction."""
     from collections import deque

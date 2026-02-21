@@ -113,7 +113,7 @@ SYSTEM_PROMPT = """You are an assistant for monitoring an Unraid server. You hel
 - When investigating issues, gather relevant data before responding.
 - For "what's wrong" questions: check status, recent errors, and logs.
 - For performance questions: check resource usage first.
-- Suggest actions when appropriate, but explain why.
+- When the user wants an action (start, stop, restart, pull), call the appropriate tool immediately. Do NOT just suggest the action in text — the tool triggers the confirmation buttons the user needs.
 - If a container is protected, explain you can't control it.
 - If you can't help, suggest relevant /commands.
 
