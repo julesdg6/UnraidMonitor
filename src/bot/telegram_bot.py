@@ -478,6 +478,23 @@ def register_commands(
                 ManageSelectionFilter(manage_state),
             )
 
+        # Register /model command for runtime LLM provider switching
+        if registry is not None:
+            from src.bot.model_command import (
+                model_command as _model_command,
+                model_provider_callback,
+                model_select_callback,
+                model_back_callback,
+            )
+
+            dp.message.register(_model_command(registry), Command("model"))
+            dp.callback_query.register(
+                model_provider_callback(registry),
+                F.data.startswith("model:") & ~F.data.startswith("model_select:") & (F.data != "model:back"),
+            )
+            dp.callback_query.register(model_back_callback(registry), F.data == "model:back")
+            dp.callback_query.register(model_select_callback(registry), F.data.startswith("model_select:"))
+
         # Register natural language handler (must be last - catches all non-commands)
         if nl_processor is not None and controller is not None:
             from src.bot.nl_handler import NLFilter, create_nl_handler, create_nl_confirm_callback, create_nl_cancel_callback

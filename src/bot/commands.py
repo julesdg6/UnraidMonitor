@@ -40,6 +40,7 @@ HELP_TEXT = """📋 *Commands*
 /cancel • Exit the setup wizard
 /manage • Dashboard with status, resources, ignores & mutes
 /health • Bot version, uptime & monitor status
+/model • Switch LLM provider and model at runtime
 
 _Partial names work: /status rad → radarr_
 _Reply /diagnose to crash alerts for AI analysis_
