@@ -177,7 +177,9 @@ class ResourceMonitor:
         """
         import asyncio
 
-        containers = self._docker.containers.list(filters={"status": "running"})
+        containers = await asyncio.to_thread(
+            self._docker.containers.list, filters={"status": "running"}
+        )
 
         async def fetch_one(container) -> ContainerStats | None:
             async with self._stats_semaphore:
@@ -203,13 +205,15 @@ class ResourceMonitor:
         import asyncio
 
         try:
-            container = self._docker.containers.get(name)
-            if container.status != "running":
-                return None
+            def _get_stats():
+                container = self._docker.containers.get(name)
+                if container.status != "running":
+                    return None
+                return container.stats(stream=False)
 
-            raw_stats = await asyncio.to_thread(
-                container.stats, stream=False
-            )
+            raw_stats = await asyncio.to_thread(_get_stats)
+            if raw_stats is None:
+                return None
             return parse_container_stats(name, raw_stats)
         except docker.errors.NotFound:
             return None

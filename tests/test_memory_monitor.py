@@ -90,7 +90,8 @@ class TestMemoryReading:
 
 
 class TestContainerControl:
-    def test_get_next_killable_returns_first_running(
+    @pytest.mark.asyncio
+    async def test_get_next_killable_returns_first_running(
         self, memory_config, mock_docker_client, mock_on_alert, mock_on_ask_restart
     ):
         # Mock running containers
@@ -112,10 +113,11 @@ class TestContainerControl:
         )
 
         # bitmagnet is first in killable list
-        result = monitor._get_next_killable()
+        result = await monitor._get_next_killable()
         assert result == "bitmagnet"
 
-    def test_get_next_killable_skips_already_killed(
+    @pytest.mark.asyncio
+    async def test_get_next_killable_skips_already_killed(
         self, memory_config, mock_docker_client, mock_on_alert, mock_on_ask_restart
     ):
         container1 = MagicMock()
@@ -137,10 +139,11 @@ class TestContainerControl:
         )
         monitor._killed_containers = ["bitmagnet"]
 
-        result = monitor._get_next_killable()
+        result = await monitor._get_next_killable()
         assert result == "obsidian"
 
-    def test_get_next_killable_returns_none_when_exhausted(
+    @pytest.mark.asyncio
+    async def test_get_next_killable_returns_none_when_exhausted(
         self, memory_config, mock_docker_client, mock_on_alert, mock_on_ask_restart
     ):
         mock_docker_client.containers.list.return_value = []
@@ -153,7 +156,7 @@ class TestContainerControl:
         )
         monitor._killed_containers = ["bitmagnet", "obsidian"]
 
-        result = monitor._get_next_killable()
+        result = await monitor._get_next_killable()
         assert result is None
 
     @pytest.mark.asyncio

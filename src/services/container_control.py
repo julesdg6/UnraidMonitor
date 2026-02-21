@@ -25,8 +25,11 @@ class ContainerController:
     async def restart(self, container_name: str) -> str:
         """Restart a container. Returns a status message."""
         try:
-            container = self.docker_client.containers.get(container_name)
-            await asyncio.to_thread(container.restart)
+            def _do_restart():
+                container = self.docker_client.containers.get(container_name)
+                container.restart()
+
+            await asyncio.to_thread(_do_restart)
             logger.info(f"Restarted container: {container_name}")
             return f"✅ {container_name} restarted successfully"
         except docker.errors.NotFound:
@@ -38,11 +41,16 @@ class ContainerController:
     async def stop(self, container_name: str) -> str:
         """Stop a container. Returns a status message."""
         try:
-            container = self.docker_client.containers.get(container_name)
-            if container.status != "running":
-                return f"ℹ️ {container_name} is already stopped"
+            def _do_stop():
+                container = self.docker_client.containers.get(container_name)
+                if container.status != "running":
+                    return False
+                container.stop()
+                return True
 
-            await asyncio.to_thread(container.stop)
+            stopped = await asyncio.to_thread(_do_stop)
+            if not stopped:
+                return f"ℹ️ {container_name} is already stopped"
             logger.info(f"Stopped container: {container_name}")
             return f"✅ {container_name} stopped"
         except docker.errors.NotFound:
@@ -54,11 +62,16 @@ class ContainerController:
     async def start(self, container_name: str) -> str:
         """Start a container. Returns a status message."""
         try:
-            container = self.docker_client.containers.get(container_name)
-            if container.status == "running":
-                return f"ℹ️ {container_name} is already running"
+            def _do_start():
+                container = self.docker_client.containers.get(container_name)
+                if container.status == "running":
+                    return False
+                container.start()
+                return True
 
-            await asyncio.to_thread(container.start)
+            started = await asyncio.to_thread(_do_start)
+            if not started:
+                return f"ℹ️ {container_name} is already running"
             logger.info(f"Started container: {container_name}")
             return f"✅ {container_name} started"
         except docker.errors.NotFound:
@@ -78,13 +91,17 @@ class ContainerController:
         5. If recreation fails, attempt rollback with old image
         """
         try:
-            container = self.docker_client.containers.get(container_name)
-            try:
-                image_name = container.image.tags[0] if container.image.tags else container.image.id
-                old_image_id = container.image.id
-            except docker.errors.ImageNotFound:
-                image_name = container.attrs.get("Config", {}).get("Image", "unknown")
-                old_image_id = None
+            def _get_container_info():
+                container = self.docker_client.containers.get(container_name)
+                try:
+                    image_name = container.image.tags[0] if container.image.tags else container.image.id
+                    old_image_id = container.image.id
+                except docker.errors.ImageNotFound:
+                    image_name = container.attrs.get("Config", {}).get("Image", "unknown")
+                    old_image_id = None
+                return container, image_name, old_image_id
+
+            container, image_name, old_image_id = await asyncio.to_thread(_get_container_info)
 
             # Step 1: Pull latest image BEFORE touching the running container
             logger.info(f"Pulling image for {container_name}: {image_name}")

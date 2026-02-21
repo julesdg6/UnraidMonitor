@@ -136,16 +136,11 @@ class TestNLIntegration:
         assert result.startswith("CONFIRMATION_NEEDED:")
 
     @pytest.mark.asyncio
-    async def test_start_executes_immediately(self, executor):
-        """Test that start doesn't require confirmation."""
-        mock_controller = Mock()
-        mock_controller.start = AsyncMock(return_value="Started plex")
-        executor._controller = mock_controller
-
+    async def test_start_requires_confirmation(self, executor):
+        """Test that start requires confirmation like other actions."""
         result = await executor.execute("start_container", {"name": "plex"})
 
-        assert "CONFIRMATION_NEEDED" not in result
-        mock_controller.start.assert_called_once()
+        assert result.startswith("CONFIRMATION_NEEDED:start:")
 
     @pytest.mark.asyncio
     async def test_tool_loop_with_multiple_tools(self, executor):
