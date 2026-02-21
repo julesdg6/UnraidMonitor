@@ -63,6 +63,7 @@ src/monitors/resource_monitor.py - ResourceMonitor for per-container CPU/memory 
 src/monitors/memory_monitor.py - MemoryMonitor for system memory pressure management
 
 # Services
+src/services/docker_client.py - SharedDockerClient wrapper for reconnectable Docker access
 src/services/nl_processor.py - NLProcessor for Claude-powered natural language chat
 src/services/nl_tools.py - Tool definitions and executor for Claude tool use
 src/services/container_control.py - ContainerController for safe restart/stop/start
