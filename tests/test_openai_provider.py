@@ -602,3 +602,63 @@ class TestOpenAIProviderStopReasonMapping:
         )
 
         assert result.stop_reason == "something_new"
+
+
+class TestOpenAIProviderParsingGuards:
+    """Tests for defensive parsing of edge-case responses."""
+
+    def test_empty_choices_returns_empty_response(self):
+        response = MagicMock()
+        response.choices = []
+
+        result = OpenAIProvider._parse_response(response)
+
+        assert result.text == ""
+        assert result.stop_reason == "end"
+        assert result.tool_calls is None
+
+    async def test_malformed_tool_json_skipped(self):
+        tc = MagicMock()
+        tc.id = "call_1"
+        tc.function = MagicMock()
+        tc.function.name = "get_status"
+        tc.function.arguments = "not valid json"
+
+        msg = _make_message(content="text", tool_calls=[tc])
+        response = _make_response(
+            [_make_choice(message=msg, finish_reason="tool_calls")]
+        )
+        client = _make_client(response)
+        provider = OpenAIProvider(client=client, model="gpt-4o")
+
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        # Malformed tool call skipped, text preserved
+        assert result.text == "text"
+        assert result.tool_calls is None
+
+    async def test_mix_of_valid_and_malformed_tools(self):
+        good_tc = _make_tool_call("call_1", "get_status", {"name": "plex"})
+        bad_tc = MagicMock()
+        bad_tc.id = "call_2"
+        bad_tc.function = MagicMock()
+        bad_tc.function.name = "bad_func"
+        bad_tc.function.arguments = "{broken"
+
+        msg = _make_message(content="", tool_calls=[good_tc, bad_tc])
+        response = _make_response(
+            [_make_choice(message=msg, finish_reason="tool_calls")]
+        )
+        client = _make_client(response)
+        provider = OpenAIProvider(client=client, model="gpt-4o")
+
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        # Only the valid tool call should be returned
+        assert result.tool_calls is not None
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0].name == "get_status"

@@ -154,7 +154,7 @@ class AnthropicProvider:
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
 
-        for block in response.content:
+        for block in (response.content or []):
             if block.type == "text":
                 text_parts.append(block.text)
             elif block.type == "tool_use":

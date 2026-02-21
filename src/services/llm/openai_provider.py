@@ -160,6 +160,9 @@ class OpenAIProvider:
     @staticmethod
     def _parse_response(response: Any) -> LLMResponse:
         """Convert an OpenAI ChatCompletion response to a normalized LLMResponse."""
+        if not response.choices:
+            return LLMResponse(text="", stop_reason="end", tool_calls=None)
+
         choice = response.choices[0]
         message = choice.message
 
@@ -168,11 +171,18 @@ class OpenAIProvider:
         tool_calls: list[ToolCall] = []
         if message.tool_calls:
             for tc in message.tool_calls:
+                try:
+                    input_data = json.loads(tc.function.arguments)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(
+                        f"Skipping tool call with invalid arguments: {tc.function.name}"
+                    )
+                    continue
                 tool_calls.append(
                     ToolCall(
                         id=tc.id,
                         name=tc.function.name,
-                        input=json.loads(tc.function.arguments),
+                        input=input_data,
                     )
                 )
 

@@ -392,3 +392,34 @@ class TestAnthropicProviderStopReasonMapping:
         )
 
         assert result.stop_reason == "something_new"
+
+
+class TestAnthropicProviderParsingGuards:
+    """Tests for defensive parsing of edge-case responses."""
+
+    async def test_none_content_returns_empty_response(self):
+        response = MagicMock()
+        response.content = None
+        response.stop_reason = "end_turn"
+        client = _make_client(response)
+        provider = AnthropicProvider(client=client, model="claude-haiku-4-5-20251001")
+
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        assert result.text == ""
+        assert result.stop_reason == "end"
+        assert result.tool_calls is None
+
+    async def test_empty_content_list_returns_empty_response(self):
+        response = _make_response([], "end_turn")
+        client = _make_client(response)
+        provider = AnthropicProvider(client=client, model="claude-haiku-4-5-20251001")
+
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        assert result.text == ""
+        assert result.tool_calls is None
