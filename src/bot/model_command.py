@@ -47,6 +47,8 @@ def model_provider_callback(registry: "ProviderRegistry") -> Callable[[CallbackQ
     """Factory for model provider selection callback."""
 
     async def handler(callback: CallbackQuery) -> None:
+        if not callback.data:
+            return
         provider_name = callback.data.split(":", 1)[1]
         providers = registry.get_available_providers()
         provider = next((p for p in providers if p.name == provider_name), None)
@@ -70,7 +72,8 @@ def model_provider_callback(registry: "ProviderRegistry") -> Callable[[CallbackQ
 
         buttons.append([InlineKeyboardButton(text="← Back", callback_data="model:back")])
 
-        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        if callback.message:
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         await callback.answer()
 
     return handler
@@ -80,6 +83,8 @@ def model_select_callback(registry: "ProviderRegistry") -> Callable[[CallbackQue
     """Factory for model selection callback."""
 
     async def handler(callback: CallbackQuery) -> None:
+        if not callback.data:
+            return
         parts = callback.data.split(":", 2)
         if len(parts) != 3:
             await callback.answer("Invalid selection")
@@ -88,15 +93,16 @@ def model_select_callback(registry: "ProviderRegistry") -> Callable[[CallbackQue
         _, provider_name, model_name = parts
         registry.set_model(provider_name, model_name)
 
-        try:
-            await callback.message.edit_text(
-                f"✅ Switched to *{model_name}* ({provider_name})",
-                parse_mode="Markdown",
-            )
-        except TelegramBadRequest:
-            await callback.message.edit_text(
-                f"✅ Switched to {model_name} ({provider_name})"
-            )
+        if callback.message:
+            try:
+                await callback.message.edit_text(
+                    f"✅ Switched to *{model_name}* ({provider_name})",
+                    parse_mode="Markdown",
+                )
+            except TelegramBadRequest:
+                await callback.message.edit_text(
+                    f"✅ Switched to {model_name} ({provider_name})"
+                )
         await callback.answer("Model switched!")
 
     return handler
@@ -120,10 +126,11 @@ def model_back_callback(registry: "ProviderRegistry") -> Callable[[CallbackQuery
             label = f"{p.display_name} ({len(p.available_models)} models)"
             buttons.append([InlineKeyboardButton(text=label, callback_data=f"model:{p.name}")])
 
-        try:
-            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
-        except TelegramBadRequest:
-            await callback.message.edit_text(text.replace("*", ""), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        if callback.message:
+            try:
+                await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
+            except TelegramBadRequest:
+                await callback.message.edit_text(text.replace("*", ""), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         await callback.answer()
 
     return handler

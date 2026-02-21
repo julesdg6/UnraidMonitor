@@ -2,6 +2,7 @@ import logging
 from typing import Callable, Awaitable
 
 from aiogram.types import Message
+from aiogram.exceptions import TelegramBadRequest
 
 from src.state import ContainerStateManager
 from src.bot.confirmation import ConfirmationManager
@@ -62,7 +63,13 @@ def _control_command(
         container_name, error = _find_container(state, query)
 
         if error:
-            await message.answer(error, parse_mode="Markdown")
+            try:
+                await message.answer(error, parse_mode="Markdown")
+            except TelegramBadRequest as e:
+                if "can't parse entities" in str(e):
+                    await message.answer(error.replace("*", "").replace("`", ""))
+                else:
+                    raise
             return
 
         if controller.is_protected(container_name):
@@ -77,10 +84,14 @@ def _control_command(
         user_id = message.from_user.id
         confirmation.request(user_id, action=action, container_name=container_name)
 
-        await message.answer(
-            _format_confirmation_message(action, container_name, status),
-            parse_mode="Markdown",
-        )
+        confirm_msg = _format_confirmation_message(action, container_name, status)
+        try:
+            await message.answer(confirm_msg, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            if "can't parse entities" in str(e):
+                await message.answer(confirm_msg.replace("*", "").replace("`", ""))
+            else:
+                raise
 
     return handler
 

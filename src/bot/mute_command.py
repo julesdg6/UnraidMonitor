@@ -3,6 +3,7 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 from datetime import timedelta
 
 from aiogram.types import Message
+from aiogram.exceptions import TelegramBadRequest
 
 from src.alerts.mute_manager import parse_duration
 from src.utils.formatting import extract_container_from_alert, truncate_message
@@ -114,12 +115,18 @@ def mute_command(
 
         # Format expiry time
         time_str = expiry.strftime("%H:%M")
-        await message.answer(
+        mute_msg = (
             f"🔇 *Muted {container}* until {time_str}\n\n"
             f"All alerts suppressed for {format_duration(duration)}.\n"
-            f"Use `/unmute {container}` to unmute early.",
-            parse_mode="Markdown",
+            f"Use `/unmute {container}` to unmute early."
         )
+        try:
+            await message.answer(mute_msg, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            if "can't parse entities" in str(e):
+                await message.answer(mute_msg.replace("*", "").replace("`", ""))
+            else:
+                raise
 
     return handler
 
@@ -186,7 +193,14 @@ def mutes_command(
         if array_expiry:
             lines.append(f"🔇 *Array alerts muted* until {array_expiry.strftime('%H:%M')}")
 
-        await message.answer(truncate_message("\n".join(lines)), parse_mode="Markdown")
+        mutes_text = truncate_message("\n".join(lines))
+        try:
+            await message.answer(mutes_text, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            if "can't parse entities" in str(e):
+                await message.answer(mutes_text.replace("*", "").replace("`", ""))
+            else:
+                raise
 
     return handler
 
@@ -228,14 +242,15 @@ def unmute_command(
 
         # Try to unmute
         if mute_manager.remove_mute(container):
-            await message.answer(
-                f"🔔 *Unmuted {container}*\n\nAlerts are now enabled.",
-                parse_mode="Markdown",
-            )
+            unmute_msg = f"🔔 *Unmuted {container}*\n\nAlerts are now enabled."
+            try:
+                await message.answer(unmute_msg, parse_mode="Markdown")
+            except TelegramBadRequest as e:
+                if "can't parse entities" in str(e):
+                    await message.answer(unmute_msg.replace("*", "").replace("`", ""))
+                else:
+                    raise
         else:
-            await message.answer(
-                f"`{container}` is not muted.",
-                parse_mode="Markdown",
-            )
+            await message.answer(f"{container} is not muted.")
 
     return handler

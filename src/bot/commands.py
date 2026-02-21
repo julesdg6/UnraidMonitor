@@ -3,6 +3,7 @@ import logging
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message
+from aiogram.exceptions import TelegramBadRequest
 import docker
 
 from src.models import ContainerInfo
@@ -51,7 +52,13 @@ _AI features need at least one LLM key configured_"""
 def help_command(state: ContainerStateManager) -> Callable[[Message], Awaitable[None]]:
     """Factory for /help command handler."""
     async def handler(message: Message) -> None:
-        await message.answer(HELP_TEXT, parse_mode="Markdown")
+        try:
+            await message.answer(HELP_TEXT, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            if "can't parse entities" in str(e):
+                await message.answer(HELP_TEXT.replace("*", "").replace("`", ""))
+            else:
+                raise
     return handler
 
 
@@ -176,7 +183,13 @@ def status_command(
                 names = ", ".join(escape_markdown(m.name) for m in matches)
                 response = f"Multiple matches found: {names}\n\n_Be more specific_"
 
-        await message.answer(response, parse_mode="Markdown")
+        try:
+            await message.answer(response, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            if "can't parse entities" in str(e):
+                await message.answer(response.replace("*", "").replace("`", ""))
+            else:
+                raise
 
     return handler
 
@@ -216,7 +229,13 @@ def logs_command(
 
         if len(matches) > 1:
             names = ", ".join(escape_markdown(m.name) for m in matches)
-            await message.answer(f"Multiple matches found: {names}\n\n_Be more specific_", parse_mode="Markdown")
+            try:
+                await message.answer(f"Multiple matches found: {names}\n\n_Be more specific_", parse_mode="Markdown")
+            except TelegramBadRequest as e:
+                if "can't parse entities" in str(e):
+                    await message.answer(f"Multiple matches found: {names}\n\nBe more specific")
+                else:
+                    raise
             return
 
         container = matches[0]
@@ -241,7 +260,14 @@ def logs_command(
             log_text = sanitize_logs_for_display(log_text)
 
             response = f"{header}{log_text}{footer}"
-            await message.answer(response, parse_mode="Markdown")
+            try:
+                await message.answer(response, parse_mode="Markdown")
+            except TelegramBadRequest as e:
+                if "can't parse entities" in str(e):
+                    plain = f"Logs: {container.name} (last {lines} lines)\n\n{log_text}"
+                    await message.answer(plain)
+                else:
+                    raise
 
         except docker.errors.NotFound:
             await message.answer(f"❌ Container '{container.name}' not found in Docker")
