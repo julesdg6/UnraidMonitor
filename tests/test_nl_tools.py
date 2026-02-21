@@ -364,19 +364,14 @@ class TestNLToolExecutorActions:
         assert "protected" in result.lower() or "cannot" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_start_executes_immediately(
+    async def test_start_requires_confirmation(
         self, executor_with_controller, mock_controller
     ):
-        """Test that start_container executes immediately (safe operation)."""
+        """Test that start_container returns a confirmation request."""
         result = await executor_with_controller.execute(
             "start_container", {"name": "plex"}
         )
-        # start_container should execute immediately, not require confirmation
-        assert (
-            "started" in result.lower()
-            or "already running" in result.lower()
-            or "confirm" not in result.lower()
-        )
+        assert result.startswith("CONFIRMATION_NEEDED:start:")
 
     @pytest.mark.asyncio
     async def test_stop_returns_confirmation_needed(self, executor_with_controller):
@@ -463,7 +458,7 @@ class TestNLToolExecutorActions:
         assert "not found" in result.lower() or "no container" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_start_without_controller_returns_error(self, executor):
-        """Test that start returns error when controller is not configured."""
+    async def test_start_without_controller_returns_confirmation(self, executor):
+        """Test that start returns confirmation even without controller (confirm callback handles it)."""
         result = await executor.execute("start_container", {"name": "plex"})
-        assert "not available" in result.lower()
+        assert result.startswith("CONFIRMATION_NEEDED:start:")

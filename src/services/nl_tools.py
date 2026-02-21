@@ -514,7 +514,7 @@ class NLToolExecutor:
         return f"CONFIRMATION_NEEDED:stop:{resolved.name}"
 
     async def _tool_start_container(self, args: dict[str, Any]) -> str:
-        """Start a container (executes immediately - safe operation)."""
+        """Request container start (requires confirmation)."""
         name = args.get("name", "")
         resolved = self._resolve_container(name)
         if isinstance(resolved, str):
@@ -523,11 +523,7 @@ class NLToolExecutor:
         if resolved.name in self._protected:
             return f"Cannot start {resolved.name} - it's a protected container."
 
-        if self._controller is None:
-            return "Container control not available."
-
-        result = await self._controller.start(resolved.name)
-        return result
+        return f"CONFIRMATION_NEEDED:start:{resolved.name}"
 
     async def _tool_pull_container(self, args: dict[str, Any]) -> str:
         """Request container pull/update (requires confirmation)."""

@@ -194,17 +194,37 @@ class TestNLConfirmCallback:
         mock_controller.pull_and_recreate.assert_called_once_with("jellyfin")
 
     @pytest.mark.asyncio
-    async def test_confirm_unknown_action(self, mock_callback, mock_processor):
+    async def test_confirm_unknown_action_rejected(self, mock_callback, mock_processor):
         mock_callback.data = "nl_confirm:unknown:container"
         mock_controller = Mock()
-        mock_controller.is_protected = Mock(return_value=False)
 
         handler = create_nl_confirm_callback(mock_processor, mock_controller)
         await handler(mock_callback)
 
-        mock_callback.message.edit_text.assert_called()
-        call_text = mock_callback.message.edit_text.call_args[0][0]
-        assert "unknown" in call_text.lower()
+        mock_callback.answer.assert_called_with("Invalid action")
+        mock_controller.is_protected.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_confirm_validates_container_name(self, mock_callback, mock_processor):
+        """Container names with path traversal should be rejected."""
+        mock_callback.data = "nl_confirm:restart:../../etc/passwd"
+        mock_controller = Mock()
+
+        handler = create_nl_confirm_callback(mock_processor, mock_controller)
+        await handler(mock_callback)
+
+        mock_callback.answer.assert_called_with("Invalid container name")
+        mock_controller.restart.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_confirm_rejects_empty_container_name(self, mock_callback, mock_processor):
+        mock_callback.data = "nl_confirm:restart:"
+        mock_controller = Mock()
+
+        handler = create_nl_confirm_callback(mock_processor, mock_controller)
+        await handler(mock_callback)
+
+        mock_callback.answer.assert_called_with("Invalid container name")
 
     @pytest.mark.asyncio
     async def test_confirm_invalid_callback_data(self, mock_callback, mock_processor):

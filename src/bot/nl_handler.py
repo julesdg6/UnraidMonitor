@@ -1,5 +1,6 @@
 """Natural language message handler for Telegram bot."""
 import logging
+import re
 from typing import Any, Awaitable, Callable
 
 from aiogram.filters import BaseFilter
@@ -91,6 +92,16 @@ def create_nl_confirm_callback(processor: Any, controller: Any) -> Callable[[Any
 
         _, action, container = parts
         user_id = callback.from_user.id
+
+        # Validate action and container name to prevent forged callback data
+        _VALID_ACTIONS = {"restart", "stop", "start", "pull"}
+        if action not in _VALID_ACTIONS:
+            await callback.answer("Invalid action")
+            return
+
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.\-]*", container):
+            await callback.answer("Invalid container name")
+            return
 
         # Clear pending action from memory
         memory = processor.memory_store.get(user_id)
