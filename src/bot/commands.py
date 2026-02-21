@@ -44,7 +44,8 @@ HELP_TEXT = """📋 *Commands*
 
 _Partial names work: /status rad → radarr_
 _Reply /diagnose to crash alerts for AI analysis_
-_Click "Ignore Similar" on alerts for smart patterns_"""
+_Click "Ignore Similar" on alerts for smart patterns_
+_AI features need at least one LLM key configured_"""
 
 
 def help_command(state: ContainerStateManager) -> Callable[[Message], Awaitable[None]]:

@@ -8,8 +8,9 @@ A Telegram bot for monitoring Docker containers and Unraid servers. Get real-tim
 - **Container Monitoring** - Status, health checks, and crash detection
 - **Resource Alerts** - CPU/memory usage with configurable thresholds
 - **Log Watching** - Automatic alerts when errors appear in container logs
-- **AI Diagnostics** - Claude-powered log analysis and troubleshooting
+- **AI Diagnostics** - LLM-powered log analysis and troubleshooting (Anthropic, OpenAI, or Ollama)
 - **Smart Ignore Patterns** - AI-generated patterns to filter known errors
+- **Multi-Provider LLM** - Switch between Anthropic Claude, OpenAI GPT, or local Ollama models at runtime
 - **Container Control** - Start, stop, restart, and pull containers remotely
 - **Unraid Server Monitoring** - CPU/memory, temperatures, UPS status, and array health
 - **Memory Pressure Management** - Automatic container priority handling during high memory
@@ -47,7 +48,9 @@ The easiest way to install on Unraid.
 2. **Configure the template**
    - `TELEGRAM_BOT_TOKEN` - Your bot token ([how to get one](#1-create-a-telegram-bot))
    - `TELEGRAM_ALLOWED_USERS` - Your Telegram user ID ([how to find it](#2-get-your-telegram-user-id))
-   - `ANTHROPIC_API_KEY` (optional) - Enables AI diagnostics
+   - `ANTHROPIC_API_KEY` (optional) - Enables AI features via Claude
+   - `OPENAI_API_KEY` (optional) - Enables AI features via OpenAI
+   - `OLLAMA_HOST` (optional) - Enables AI features via local Ollama (e.g., `http://192.168.1.100:11434`)
    - `UNRAID_API_KEY` (optional) - Enables server monitoring
 
 3. **Start the container**
@@ -84,8 +87,10 @@ Create `/mnt/user/appdata/unraid-monitor/config/.env`:
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_ALLOWED_USERS=123456789
 
-# Optional - enables AI features
+# Optional - AI features (configure at least one for /diagnose, NL chat, smart ignore)
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+OLLAMA_HOST=http://localhost:11434
 
 # Optional - enables Unraid server monitoring
 UNRAID_API_KEY=your_unraid_api_key_here
@@ -115,8 +120,10 @@ Go to **Docker** → **Add Container** and configure:
 |------|-------|
 | `TELEGRAM_BOT_TOKEN` | Your bot token |
 | `TELEGRAM_ALLOWED_USERS` | Your user ID |
-| `ANTHROPIC_API_KEY` | (optional) Your API key |
-| `UNRAID_API_KEY` | (optional) Your API key |
+| `ANTHROPIC_API_KEY` | (optional) Claude AI features |
+| `OPENAI_API_KEY` | (optional) OpenAI AI features |
+| `OLLAMA_HOST` | (optional) Ollama URL, e.g., `http://192.168.1.100:11434` |
+| `UNRAID_API_KEY` | (optional) Unraid server monitoring |
 | `TZ` | Your timezone (e.g., `Europe/London`) |
 
 #### Step 4: Start and verify
@@ -141,16 +148,26 @@ Start the container and check the logs for any errors. Message your bot on Teleg
 
 This ID is used to restrict who can control your bot. You can add multiple IDs separated by commas: `123456789,987654321`
 
-### 3. Get an Anthropic API Key (Optional)
+### 3. Configure an LLM Provider (Optional)
 
-Required for AI-powered features:
-- Log analysis and diagnostics (`/diagnose`)
-- Smart ignore pattern generation
-- Natural language chat
+At least one provider is needed for AI-powered features (`/diagnose`, smart ignore patterns, natural language chat). You can configure multiple providers and switch between them at runtime with `/model`.
 
+**Option A: Anthropic Claude** (recommended)
 1. Sign up at [console.anthropic.com](https://console.anthropic.com)
 2. Go to API Keys and create a new key
 3. Add it as `ANTHROPIC_API_KEY`
+
+**Option B: OpenAI**
+1. Sign up at [platform.openai.com](https://platform.openai.com)
+2. Go to API Keys and create a new key
+3. Add it as `OPENAI_API_KEY`
+
+**Option C: Ollama** (free, runs locally)
+1. Install Ollama from [ollama.com](https://ollama.com)
+2. Pull a model: `ollama pull llama3.1:8b`
+3. Set `OLLAMA_HOST` to your Ollama URL (e.g., `http://192.168.1.100:11434`)
+
+Models are auto-discovered from Ollama at startup. Note: some local models don't support tool calling, so NL chat actions (restart, etc.) may be limited.
 
 ### 4. Get an Unraid API Key (Optional)
 
@@ -326,6 +343,7 @@ unraid:
 | `/cancel` | Exit the setup wizard mid-flow |
 | `/manage` | Dashboard with quick action buttons |
 | `/health` | Bot version, uptime, and monitor status |
+| `/model` | Switch LLM provider and model at runtime |
 | `/help` | Show help message |
 
 ### Natural Language Chat
@@ -340,7 +358,7 @@ Instead of commands, you can ask questions naturally:
 
 Follow-up questions work too - say "restart it" after discussing a container.
 
-**Note:** Requires `ANTHROPIC_API_KEY` to be configured.
+**Note:** Requires at least one LLM provider to be configured (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OLLAMA_HOST`). Use `/model` to switch providers.
 
 ---
 
@@ -434,8 +452,10 @@ This means the container can't access the Docker socket.
 
 ### AI features not working
 
-- Verify `ANTHROPIC_API_KEY` is set correctly
+- Verify at least one LLM key is set: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OLLAMA_HOST`
 - Check logs for API errors
+- Use `/model` to see which providers are configured and switch between them
+- If using Ollama, ensure the server is reachable and has models pulled
 - The bot works without AI - you'll get basic alerts, but `/diagnose` and natural language chat won't work
 
 ### Unraid monitoring not working
@@ -478,7 +498,8 @@ data/
 ├── ignored_errors.json   # Ignore patterns
 ├── mutes.json            # Container mutes
 ├── server_mutes.json     # Server mutes
-└── array_mutes.json      # Array mutes
+├── array_mutes.json      # Array mutes
+└── model_selection.json  # Active LLM provider/model choice
 ```
 
 ---
@@ -487,7 +508,7 @@ data/
 
 - Docker
 - Telegram Bot Token
-- (Optional) Anthropic API key for AI features
+- (Optional) LLM provider for AI features: Anthropic API key, OpenAI API key, or Ollama instance
 - (Optional) Unraid API key for server monitoring
 
 ---
