@@ -9,10 +9,24 @@ files:
     exports:
       - name: YesFilter
         kind: class
-        description: Filter for 'yes' confirmation messages
+        description: Context-aware filter for 'yes' — only matches when user has pending confirmation
+        methods:
+          - name: __init__
+            params: [{name: confirmation, type: "ConfirmationManager | None"}]
+            returns: None
+          - name: __call__
+            params: [{name: message, type: Message}]
+            returns: bool
       - name: DetailsFilter
         kind: class
-        description: Filter for follow-up messages (yes, more, details, etc.)
+        description: Context-aware filter for follow-up messages — only matches when user has pending diagnostic
+        methods:
+          - name: __init__
+            params: [{name: diagnostic_service, type: "Any | None"}]
+            returns: None
+          - name: __call__
+            params: [{name: message, type: Message}]
+            returns: bool
       - name: IgnoreSelectionFilter
         kind: class
         description: Filter for ignore selection responses during /ignore workflow
@@ -383,6 +397,14 @@ files:
         kind: function
         signature: (memory_monitor: MemoryMonitor) -> Callable[[CallbackQuery], Awaitable[None]]
         description: Factory for cancel auto-kill button callback handler
+      - name: mem_restart_yes_callback
+        kind: function
+        signature: (memory_monitor: MemoryMonitor) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for memory restart Yes button callback handler
+      - name: mem_restart_no_callback
+        kind: function
+        signature: (memory_monitor: MemoryMonitor) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for memory restart No button callback handler
     imports:
       - from: src.state
         items: [ContainerStateManager]

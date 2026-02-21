@@ -125,11 +125,57 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 `main.py` is the composition root. It instantiates all components and wires them together:
 - **First-run path:** If no `config.yaml` exists, starts the setup wizard which guides users through Unraid connection and container classification via Telegram, then restarts via `os.execv`
 - **Normal path:** Loads config and starts all monitors immediately
-- `AlertManagerProxy` wraps `AlertManager` to lazily resolve the Telegram chat ID (set on first `/start` command)
+- `AlertManagerProxy` wraps `AlertManager` to lazily resolve the Telegram chat ID (set on first `/start` command). Queues up to 50 alerts until a user sends `/start`, then delivers them.
 - Background tasks for each monitor run concurrently via `asyncio.create_task`
 - Telegram bot uses aiogram 3.x polling
 - `ProviderRegistry` manages LLM providers (Anthropic, OpenAI, Ollama) with per-feature model overrides and JSON persistence
-- Components are passed to bot command handlers via aiogram's dependency injection
+- `AuthMiddleware` on both message and callback_query dispatchers restricts access to `TELEGRAM_ALLOWED_USERS`
+
+### Handler Factory Pattern (Critical)
+
+Every bot command/callback is a **factory function** that captures dependencies via closure and returns the actual async handler. This is the primary dependency injection mechanism — there is no DI container.
+
+```python
+# Pattern: factory takes deps, returns handler
+def my_command(state: ContainerStateManager, controller: ContainerController) -> Callable:
+    async def handler(message: Message) -> None:
+        # use state, controller via closure
+        ...
+    return handler
+
+# Registration in telegram_bot.py:
+dp.message.register(my_command(state, controller), Command("mycommand"))
+```
+
+To add a new command: (1) create the factory in the appropriate `src/bot/*.py` file, (2) register it in `register_commands()` in `src/bot/telegram_bot.py`.
+
+### Callback Data Conventions
+
+Inline keyboard buttons use `prefix:data` format, parsed with `split(":", 1)` to handle container names containing colons:
+- `restart:container_name`, `logs:container_name`, `diagnose:container_name`
+- `mute:container_name:duration` (e.g., `mute:plex:3600`)
+- `ignore_similar:container_name`
+- `mem_kill:container_name`, `mem_restart_yes:container_name`
+- `nl_confirm:action_id`, `nl_cancel`
+- `manage:section` (e.g., `manage:status`, `manage:ignores`)
+- `model_provider:provider_name`, `model_select:provider:model`, `model:back`
+- `setup:confirm`, `setup:toggle:container_name`, `setup:adjust:category`
+
+Callback handlers are registered with `F.data.startswith("prefix:")` filters in `register_commands()`.
+
+### Handler Registration Order
+
+In `register_commands()` (`src/bot/telegram_bot.py`), order matters:
+1. Command handlers (`Command("status")`, etc.)
+2. Custom filter handlers (YesFilter, DetailsFilter, IgnoreSelectionFilter, ManageSelectionFilter)
+3. Callback query handlers (`F.data.startswith(...)`)
+4. **NL handler must be last** — it catches all non-command text via `NLFilter`
+
+Stateful filters (IgnoreSelectionFilter, ManageSelectionFilter) only match when the user has a pending selection, preventing them from swallowing unrelated numeric input.
+
+### Telegram Message Formatting
+
+Messages use Markdown parse mode. Always wrap in try/except for `TelegramBadRequest` with `"can't parse entities"`, falling back to plain text. Use `escape_markdown()` from `src/utils/formatting.py` for dynamic content.
 
 ### LLM Provider Architecture
 
@@ -155,7 +201,7 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - `monitors/system_monitor.py` - CPU temp, usage, memory with configurable thresholds
 - `monitors/array_monitor.py` - Disk health, array usage, temperature monitoring
 
-**Bot** (`src/bot/`) - Telegram command/callback handlers:
+**Bot** (`src/bot/`) - Telegram command/callback handlers (see Handler Factory Pattern above):
 - `telegram_bot.py` - Bot/dispatcher setup, handler registration
 - `commands.py` - `/status`, `/logs`, `/help`
 - `control_commands.py` - `/restart`, `/stop`, `/start`, `/pull` with confirmations
@@ -185,7 +231,7 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - `ollama_provider.py` - Ollama local models with auto-discovery
 - `registry.py` - `ProviderRegistry` for model selection, per-feature overrides, persistence
 
-**Alerts** (`src/alerts/`) - Alert management layer:
+**Alerts** (`src/alerts/`) - Alert pipeline: `AlertManager` → `RateLimiter` → `MuteManager`/`IgnoreManager`
 - `manager.py` + `AlertManagerProxy` (in main.py) - Format and send Telegram messages
 - `rate_limiter.py` - Deduplication with configurable cooldowns
 - `mute_manager.py`, `server_mute_manager.py`, `array_mute_manager.py` - Timed/permanent mutes (JSON persistence in `data/`)
@@ -200,10 +246,18 @@ Unraid API ────→ UnraidSystemMonitor ──→ AlertManagerProxy/
 - **All async** - Every component uses async/await. Tests use `pytest-asyncio` with `asyncio_mode = "auto"`
 - **Partial name matching** - Container commands accept partial names (e.g., `/logs rad` matches `radarr`)
 - **Graceful degradation** - Bot works without any LLM API keys; AI features just disable. Models without tool support get a note appended to NL responses
-- **JSON persistence** - Mutes and ignores stored in `data/*.json` files
+- **JSON persistence** - Mutes and ignores stored in `data/*.json` files with `batch_updates()` context manager to defer saves
 - **Protected containers** - Listed in `config.yaml`, cannot be controlled via Telegram
-- **Confirmation prompts** - Destructive actions (restart, stop, pull) require button confirmation
+- **Confirmation prompts** - Destructive actions (restart, stop, pull) require button confirmation via `ConfirmationManager`
 - **Europe/London timezone** - All displayed timestamps use this timezone
+- **Prompt caching** - Anthropic API calls use `cache_control` on system prompts and tool definitions for cost savings
+
+### Testing Conventions
+
+- No `conftest.py` — tests are self-contained with inline imports
+- Mock pattern: `MagicMock` for sync objects, `AsyncMock` for async methods (e.g., `message.answer = AsyncMock()`)
+- Test the factory return value directly: `handler = my_command(state); await handler(message)`
+- `ContainerInfo` and `ContainerStateManager` are constructed directly in tests (no fixtures)
 
 ## Environment Variables
 

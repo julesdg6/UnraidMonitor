@@ -224,6 +224,10 @@ files:
           - name: __init__
             params: [{name: config_ignores, type: "dict[str, list[str]]"}, {name: json_path, type: str}]
             returns: None
+          - name: batch_updates
+            params: []
+            returns: ContextManager
+            description: Context manager to defer saves during bulk operations; single save on exit
           - name: is_ignored
             params: [{name: container, type: str}, {name: message, type: str}]
             returns: bool
