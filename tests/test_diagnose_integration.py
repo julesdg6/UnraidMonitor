@@ -3,6 +3,22 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
+from src.services.llm.provider import LLMResponse
+
+
+def make_mock_provider(text=""):
+    """Create a mock LLM provider returning the given text."""
+    provider = MagicMock()
+    provider.supports_tools = False
+    provider.model_name = "test-model"
+    provider.provider_name = "test"
+    provider.chat = AsyncMock(return_value=LLMResponse(
+        text=text,
+        stop_reason="end",
+        tool_calls=None,
+    ))
+    return provider
+
 
 @pytest.mark.asyncio
 async def test_full_diagnose_flow():
@@ -25,12 +41,9 @@ async def test_full_diagnose_flow():
     mock_docker = MagicMock()
     mock_docker.containers.get.return_value = mock_container
 
-    mock_anthropic = MagicMock()
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text="Database locked. Restart MariaDB.")]
-    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
+    mock_provider = make_mock_provider("Database locked. Restart MariaDB.")
 
-    service = DiagnosticService(mock_docker, mock_anthropic)
+    service = DiagnosticService(mock_docker, provider=mock_provider)
 
     # Step 1: User sends /diagnose overseerr
     diagnose_handler = diagnose_command(state, service)
@@ -48,9 +61,10 @@ async def test_full_diagnose_flow():
     assert "Want more details" in response1
 
     # Step 2: User sends "yes"
-    mock_anthropic.messages.create.return_value.content = [
-        MagicMock(text="Detailed: The root cause is SQLite database locking...")
-    ]
+    mock_provider.chat = AsyncMock(return_value=LLMResponse(
+        text="Detailed: The root cause is SQLite database locking...",
+        stop_reason="end",
+    ))
 
     details_handler = create_details_handler(service)
     msg2 = MagicMock()
@@ -84,12 +98,9 @@ async def test_diagnose_reply_to_crash_alert():
     mock_docker = MagicMock()
     mock_docker.containers.get.return_value = mock_container
 
-    mock_anthropic = MagicMock()
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text="Analysis result.")]
-    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
+    mock_provider = make_mock_provider("Analysis result.")
 
-    service = DiagnosticService(mock_docker, mock_anthropic)
+    service = DiagnosticService(mock_docker, provider=mock_provider)
 
     handler = diagnose_command(state, service)
 
@@ -135,12 +146,9 @@ async def test_diagnose_different_users_independent_contexts():
     mock_docker = MagicMock()
     mock_docker.containers.get.return_value = mock_container
 
-    mock_anthropic = MagicMock()
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text="Brief analysis.")]
-    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
+    mock_provider = make_mock_provider("Brief analysis.")
 
-    service = DiagnosticService(mock_docker, mock_anthropic)
+    service = DiagnosticService(mock_docker, provider=mock_provider)
 
     diagnose_handler = diagnose_command(state, service)
     details_handler = create_details_handler(service)
@@ -166,9 +174,10 @@ async def test_diagnose_different_users_independent_contexts():
     assert service.has_pending(222)
 
     # User 1 asks for details
-    mock_anthropic.messages.create.return_value.content = [
-        MagicMock(text="Detailed for user 1")
-    ]
+    mock_provider.chat = AsyncMock(return_value=LLMResponse(
+        text="Detailed for user 1",
+        stop_reason="end",
+    ))
     yes_msg1 = MagicMock()
     yes_msg1.text = "yes"
     yes_msg1.from_user.id = 111
@@ -183,7 +192,7 @@ async def test_diagnose_different_users_independent_contexts():
 
 @pytest.mark.asyncio
 async def test_diagnose_no_api_key_configured():
-    """Test graceful handling when Anthropic API is not configured."""
+    """Test graceful handling when AI provider is not configured."""
     from src.state import ContainerStateManager
     from src.models import ContainerInfo
     from src.bot.diagnose_command import diagnose_command
@@ -200,8 +209,8 @@ async def test_diagnose_no_api_key_configured():
     mock_docker = MagicMock()
     mock_docker.containers.get.return_value = mock_container
 
-    # No Anthropic client configured
-    service = DiagnosticService(mock_docker, anthropic_client=None)
+    # No provider configured
+    service = DiagnosticService(mock_docker, provider=None)
 
     handler = diagnose_command(state, service)
 
@@ -213,10 +222,10 @@ async def test_diagnose_no_api_key_configured():
 
     await handler(message)
 
-    # Should still respond but indicate API not configured
+    # Should still respond but indicate provider not configured
     response = message.answer.call_args_list[-1][0][0]
     assert "Diagnosis" in response
-    assert "Anthropic API not configured" in response
+    assert "AI provider not configured" in response
 
 
 @pytest.mark.asyncio

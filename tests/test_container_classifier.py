@@ -3,11 +3,26 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 from src.services.container_classifier import ContainerClassifier, ContainerClassification
+from src.services.llm.provider import LLMResponse
+
+
+def make_mock_provider(text=""):
+    """Create a mock LLM provider returning the given text."""
+    provider = MagicMock()
+    provider.supports_tools = False
+    provider.model_name = "test-model"
+    provider.provider_name = "test"
+    provider.chat = AsyncMock(return_value=LLMResponse(
+        text=text,
+        stop_reason="end",
+        tool_calls=None,
+    ))
+    return provider
 
 
 @pytest.fixture
 def classifier():
-    return ContainerClassifier(anthropic_client=None)
+    return ContainerClassifier(provider=None)
 
 
 class TestPatternMatching:
@@ -51,18 +66,14 @@ class TestPatternMatching:
 class TestAIClassification:
     @pytest.mark.asyncio
     async def test_ai_classifies_unknown_containers(self):
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock()]
-        mock_response.content[0].text = (
+        mock_provider = make_mock_provider(
             '[{"name": "bookstack", "categories": ["watched"],'
             ' "description": "Wiki/documentation platform"},'
             ' {"name": "dozzle", "categories": ["ignored"],'
             ' "description": "Log viewer UI"}]'
         )
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        classifier = ContainerClassifier(anthropic_client=mock_client)
+        classifier = ContainerClassifier(provider=mock_provider)
         unclassified = [
             ContainerClassification(name="bookstack", image="linuxserver/bookstack"),
             ContainerClassification(name="dozzle", image="amir20/dozzle"),
@@ -77,10 +88,13 @@ class TestAIClassification:
 
     @pytest.mark.asyncio
     async def test_ai_returns_originals_on_failure(self):
-        mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = False
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
+        mock_provider.chat = AsyncMock(side_effect=Exception("API error"))
 
-        classifier = ContainerClassifier(anthropic_client=mock_client)
+        classifier = ContainerClassifier(provider=mock_provider)
         unclassified = [
             ContainerClassification(name="bookstack", image="linuxserver/bookstack")
         ]
@@ -91,7 +105,7 @@ class TestAIClassification:
 
     @pytest.mark.asyncio
     async def test_ai_skipped_without_client(self):
-        classifier = ContainerClassifier(anthropic_client=None)
+        classifier = ContainerClassifier(provider=None)
         unclassified = [
             ContainerClassification(name="bookstack", image="linuxserver/bookstack")
         ]
@@ -102,16 +116,12 @@ class TestAIClassification:
 
     @pytest.mark.asyncio
     async def test_ai_filters_invalid_categories(self):
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock()]
-        mock_response.content[0].text = (
+        mock_provider = make_mock_provider(
             '[{"name": "app", "categories": ["watched", "superadmin"],'
             ' "description": "An app"}]'
         )
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        classifier = ContainerClassifier(anthropic_client=mock_client)
+        classifier = ContainerClassifier(provider=mock_provider)
         unclassified = [ContainerClassification(name="app", image="myrepo/app")]
         results = await classifier.classify_batch_with_ai(unclassified)
 
@@ -122,16 +132,12 @@ class TestAIClassification:
 class TestClassifyAll:
     @pytest.mark.asyncio
     async def test_classify_all_combines_pattern_and_ai(self):
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock()]
-        mock_response.content[0].text = (
+        mock_provider = make_mock_provider(
             '[{"name": "bookstack", "categories": ["watched"],'
             ' "description": "Wiki"}]'
         )
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        classifier = ContainerClassifier(anthropic_client=mock_client)
+        classifier = ContainerClassifier(provider=mock_provider)
         containers = [
             ("mariadb", "linuxserver/mariadb", "running"),
             ("radarr", "linuxserver/radarr", "running"),
@@ -152,14 +158,13 @@ class TestClassifyAll:
 
     @pytest.mark.asyncio
     async def test_classify_all_no_ai_call_when_all_matched(self):
-        mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock()
+        mock_provider = make_mock_provider()
 
-        classifier = ContainerClassifier(anthropic_client=mock_client)
+        classifier = ContainerClassifier(provider=mock_provider)
         containers = [
             ("mariadb", "linuxserver/mariadb", "running"),
             ("plex", "plexinc/plex-media-server", "running"),
         ]
         await classifier.classify_all(containers)
 
-        mock_client.messages.create.assert_not_called()
+        mock_provider.chat.assert_not_called()

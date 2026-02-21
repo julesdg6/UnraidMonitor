@@ -3,6 +3,21 @@ import pytest
 from datetime import datetime
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from src.services.nl_processor import ConversationMemory, MemoryStore, NLProcessor, ProcessResult
+from src.services.llm.provider import LLMResponse, ToolCall
+
+
+def make_mock_provider(response: LLMResponse | None = None):
+    """Create a mock LLM provider."""
+    provider = MagicMock()
+    provider.supports_tools = True
+    provider.model_name = "test-model"
+    provider.provider_name = "test"
+    provider.chat = AsyncMock(return_value=response or LLMResponse(
+        text="Everything looks fine!",
+        stop_reason="end",
+        tool_calls=None,
+    ))
+    return provider
 
 
 class TestConversationMemory:
@@ -97,14 +112,12 @@ class TestMemoryStore:
 
 class TestNLProcessor:
     @pytest.fixture
-    def mock_anthropic(self):
-        client = Mock()
-        # Mock a simple response with no tool use
-        response = Mock()
-        response.stop_reason = "end_turn"
-        response.content = [Mock(type="text", text="Everything looks fine!")]
-        client.messages.create = AsyncMock(return_value=response)
-        return client
+    def mock_provider(self):
+        return make_mock_provider(LLMResponse(
+            text="Everything looks fine!",
+            stop_reason="end",
+            tool_calls=None,
+        ))
 
     @pytest.fixture
     def mock_executor(self):
@@ -113,9 +126,9 @@ class TestNLProcessor:
         return executor
 
     @pytest.fixture
-    def processor(self, mock_anthropic, mock_executor):
+    def processor(self, mock_provider, mock_executor):
         return NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=mock_executor,
         )
 
@@ -133,28 +146,28 @@ class TestNLProcessor:
         assert len(memory.messages) == 2  # user + assistant
 
     @pytest.mark.asyncio
-    async def test_process_uses_conversation_history(self, processor, mock_anthropic):
+    async def test_process_uses_conversation_history(self, processor, mock_provider):
         # First message
         await processor.process(user_id=123, message="check plex")
         # Second message (should include history)
         await processor.process(user_id=123, message="restart it")
         # Check that the second call included history
-        calls = mock_anthropic.messages.create.call_args_list
+        calls = mock_provider.chat.call_args_list
         assert len(calls) == 2
         # Second call should have more messages (history + new)
         second_call_messages = calls[1][1]["messages"]
         assert len(second_call_messages) >= 2
 
     @pytest.mark.asyncio
-    async def test_process_returns_pending_action_for_confirmation(self, processor, mock_anthropic, mock_executor):
+    async def test_process_returns_pending_action_for_confirmation(self, processor, mock_provider, mock_executor):
         # Mock tool use response
-        tool_use_block = Mock(type="tool_use", id="123", name="restart_container", input={"name": "plex"})
-        response1 = Mock(stop_reason="tool_use", content=[tool_use_block])
+        tool_call = ToolCall(id="123", name="restart_container", input={"name": "plex"})
+        response1 = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tool_call])
         # Mock executor returning confirmation needed
         mock_executor.execute = AsyncMock(return_value="CONFIRMATION_NEEDED:restart:plex")
         # Mock final response
-        response2 = Mock(stop_reason="end_turn", content=[Mock(type="text", text="I can restart plex for you.")])
-        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2])
+        response2 = LLMResponse(text="I can restart plex for you.", stop_reason="end")
+        mock_provider.chat = AsyncMock(side_effect=[response1, response2])
 
         result = await processor.process(user_id=123, message="restart plex")
         assert result.pending_action is not None
@@ -163,7 +176,7 @@ class TestNLProcessor:
 
     @pytest.mark.asyncio
     async def test_process_without_anthropic_returns_error(self):
-        processor = NLProcessor(anthropic_client=None, tool_executor=Mock())
+        processor = NLProcessor(provider=None, tool_executor=Mock())
         result = await processor.process(user_id=123, message="hello")
         assert "not configured" in result.response.lower() or "not available" in result.response.lower()
 

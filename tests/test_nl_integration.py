@@ -6,19 +6,23 @@ from datetime import datetime, timezone
 
 from src.services.nl_processor import NLProcessor, MemoryStore
 from src.services.nl_tools import NLToolExecutor, get_tool_definitions
+from src.services.llm.provider import LLMResponse, ToolCall
 from src.state import ContainerStateManager
 from src.models import ContainerInfo
 
 
-def make_tool_use_block(tool_name: str, tool_id: str, tool_input: dict) -> Mock:
-    """Create a mock tool_use block with proper name attribute.
-
-    Note: Mock(name=...) uses 'name' for the Mock's display name, not as an attribute.
-    We must set .name as an attribute after construction.
-    """
-    block = Mock(type="tool_use", id=tool_id, input=tool_input)
-    block.name = tool_name
-    return block
+def make_mock_provider(response: LLMResponse | None = None):
+    """Create a mock LLM provider."""
+    provider = MagicMock()
+    provider.supports_tools = True
+    provider.model_name = "test-model"
+    provider.provider_name = "test"
+    provider.chat = AsyncMock(return_value=response or LLMResponse(
+        text="OK",
+        stop_reason="end",
+        tool_calls=None,
+    ))
+    return provider
 
 
 @pytest.fixture
@@ -75,21 +79,19 @@ class TestNLIntegration:
     @pytest.mark.asyncio
     async def test_end_to_end_status_query(self, executor):
         """Test a complete flow: user asks about container status."""
-        # Mock Anthropic client with tool use
-        mock_anthropic = Mock()
+        mock_provider = make_mock_provider()
 
         # First response: tool use
-        tool_use_block = make_tool_use_block("get_container_status", "123", {"name": "plex"})
-        response1 = Mock(stop_reason="tool_use", content=[tool_use_block])
+        tc = ToolCall(id="123", name="get_container_status", input={"name": "plex"})
+        response1 = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc])
 
         # Second response: final text
-        text_block = Mock(type="text", text="Plex is running and healthy.")
-        response2 = Mock(stop_reason="end_turn", content=[text_block])
+        response2 = LLMResponse(text="Plex is running and healthy.", stop_reason="end")
 
-        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2])
+        mock_provider.chat = AsyncMock(side_effect=[response1, response2])
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=executor,
         )
 
@@ -100,14 +102,10 @@ class TestNLIntegration:
     @pytest.mark.asyncio
     async def test_followup_uses_context(self, executor):
         """Test that follow-up questions use conversation context."""
-        mock_anthropic = Mock()
-
-        # Simple text responses for simplicity
-        text_response = Mock(stop_reason="end_turn", content=[Mock(type="text", text="OK")])
-        mock_anthropic.messages.create = AsyncMock(return_value=text_response)
+        mock_provider = make_mock_provider(LLMResponse(text="OK", stop_reason="end"))
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=executor,
         )
 
@@ -118,7 +116,7 @@ class TestNLIntegration:
         await processor.process(user_id=123, message="what about its logs?")
 
         # Check that second call included history
-        calls = mock_anthropic.messages.create.call_args_list
+        calls = mock_provider.chat.call_args_list
         second_call_messages = calls[1][1]["messages"]
         # Should have: previous user msg, previous assistant msg, new user msg
         assert len(second_call_messages) >= 3
@@ -152,50 +150,48 @@ class TestNLIntegration:
     @pytest.mark.asyncio
     async def test_tool_loop_with_multiple_tools(self, executor):
         """Test that processor handles multiple tool calls in sequence."""
-        mock_anthropic = Mock()
+        mock_provider = make_mock_provider()
 
         # First response: get status
-        tool_use_1 = make_tool_use_block("get_container_status", "1", {"name": "plex"})
-        response1 = Mock(stop_reason="tool_use", content=[tool_use_1])
+        tc1 = ToolCall(id="1", name="get_container_status", input={"name": "plex"})
+        response1 = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc1])
 
         # Second response: get logs
-        tool_use_2 = make_tool_use_block("get_container_logs", "2", {"name": "plex"})
-        response2 = Mock(stop_reason="tool_use", content=[tool_use_2])
+        tc2 = ToolCall(id="2", name="get_container_logs", input={"name": "plex"})
+        response2 = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc2])
 
         # Third response: final text
-        text_block = Mock(type="text", text="Plex is running. Logs show a connection timeout error.")
-        response3 = Mock(stop_reason="end_turn", content=[text_block])
+        response3 = LLMResponse(text="Plex is running. Logs show a connection timeout error.", stop_reason="end")
 
-        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2, response3])
+        mock_provider.chat = AsyncMock(side_effect=[response1, response2, response3])
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=executor,
         )
 
         result = await processor.process(user_id=123, message="what's wrong with plex?")
 
         # Should have called API 3 times
-        assert mock_anthropic.messages.create.call_count == 3
+        assert mock_provider.chat.call_count == 3
         assert "plex" in result.response.lower() or "connection" in result.response.lower()
 
     @pytest.mark.asyncio
     async def test_confirmation_stored_in_memory(self, executor):
         """Test that pending actions are stored in memory."""
-        mock_anthropic = Mock()
+        mock_provider = make_mock_provider()
 
         # Response with tool use for restart
-        tool_use_block = make_tool_use_block("restart_container", "123", {"name": "plex"})
-        response1 = Mock(stop_reason="tool_use", content=[tool_use_block])
+        tc = ToolCall(id="123", name="restart_container", input={"name": "plex"})
+        response1 = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc])
 
         # Final text response
-        text_block = Mock(type="text", text="I can restart plex for you. Please confirm.")
-        response2 = Mock(stop_reason="end_turn", content=[text_block])
+        response2 = LLMResponse(text="I can restart plex for you. Please confirm.", stop_reason="end")
 
-        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, response2])
+        mock_provider.chat = AsyncMock(side_effect=[response1, response2])
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=executor,
         )
 
@@ -214,13 +210,10 @@ class TestNLIntegration:
     @pytest.mark.asyncio
     async def test_different_users_have_separate_contexts(self, executor):
         """Test that different users have separate conversation memories."""
-        mock_anthropic = Mock()
-
-        text_response = Mock(stop_reason="end_turn", content=[Mock(type="text", text="OK")])
-        mock_anthropic.messages.create = AsyncMock(return_value=text_response)
+        mock_provider = make_mock_provider(LLMResponse(text="OK", stop_reason="end"))
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=executor,
         )
 
@@ -243,11 +236,11 @@ class TestNLIntegration:
     @pytest.mark.asyncio
     async def test_error_handling_returns_fallback(self, executor):
         """Test that errors during processing return a fallback message."""
-        mock_anthropic = Mock()
-        mock_anthropic.messages.create = AsyncMock(side_effect=Exception("API error"))
+        mock_provider = make_mock_provider()
+        mock_provider.chat = AsyncMock(side_effect=Exception("API error"))
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=executor,
         )
 
@@ -258,9 +251,9 @@ class TestNLIntegration:
 
     @pytest.mark.asyncio
     async def test_no_anthropic_client_returns_error(self, executor):
-        """Test that missing Anthropic client returns helpful message."""
+        """Test that missing provider returns helpful message."""
         processor = NLProcessor(
-            anthropic_client=None,
+            provider=None,
             tool_executor=executor,
         )
 
@@ -315,20 +308,20 @@ class TestNLIntegration:
     @pytest.mark.asyncio
     async def test_new_message_clears_pending_action(self, executor):
         """Test that a new message clears any pending action."""
-        mock_anthropic = Mock()
+        mock_provider = make_mock_provider()
 
         # First: action that needs confirmation
-        tool_use_block = make_tool_use_block("restart_container", "1", {"name": "plex"})
-        response1 = Mock(stop_reason="tool_use", content=[tool_use_block])
-        text_response1 = Mock(stop_reason="end_turn", content=[Mock(type="text", text="Confirm restart?")])
+        tc = ToolCall(id="1", name="restart_container", input={"name": "plex"})
+        response1 = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc])
+        response2 = LLMResponse(text="Confirm restart?", stop_reason="end")
 
         # Second: simple query (no confirmation)
-        text_response2 = Mock(stop_reason="end_turn", content=[Mock(type="text", text="Everything is fine.")])
+        response3 = LLMResponse(text="Everything is fine.", stop_reason="end")
 
-        mock_anthropic.messages.create = AsyncMock(side_effect=[response1, text_response1, text_response2])
+        mock_provider.chat = AsyncMock(side_effect=[response1, response2, response3])
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=executor,
         )
 

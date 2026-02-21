@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import docker
 
-from src.utils.api_errors import handle_anthropic_error
+from src.utils.api_errors import handle_llm_error
 from src.utils.formatting import format_uptime
 from src.utils.sanitize import sanitize_container_name, sanitize_logs
 
@@ -63,15 +63,13 @@ class DiagnosticService:
     def __init__(
         self,
         docker_client: docker.DockerClient,
-        anthropic_client,
-        model: str = "claude-haiku-4-5-20251001",
+        provider=None,
         brief_max_tokens: int = 300,
         detail_max_tokens: int = 800,
         context_expiry_seconds: int = 600,
     ):
         self._docker = docker_client
-        self._anthropic = anthropic_client
-        self._model = model
+        self._provider = provider
         self._brief_max_tokens = brief_max_tokens
         self._detail_max_tokens = detail_max_tokens
         self._context_expiry_seconds = context_expiry_seconds
@@ -134,8 +132,8 @@ class DiagnosticService:
         Returns:
             Brief analysis summary.
         """
-        if not self._anthropic:
-            return "❌ Anthropic API not configured. Set ANTHROPIC_API_KEY in .env"
+        if not self._provider:
+            return "❌ AI provider not configured. Set ANTHROPIC_API_KEY in .env"
 
         uptime_str = format_uptime(context.uptime_seconds) if context.uptime_seconds else "unknown"
 
@@ -160,23 +158,13 @@ Last log lines:
 Respond with 2-3 sentences: What happened, the likely cause, and how to fix it. Be specific and actionable. If you see a clear command to run, include it."""
 
         try:
-            message = await self._anthropic.messages.create(
-                model=self._model,
+            response = await self._provider.chat(
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=self._brief_max_tokens,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt,
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ],
-                }],
             )
-            return message.content[0].text
+            return response.text
         except Exception as e:
-            error_result = handle_anthropic_error(e)
+            error_result = handle_llm_error(e)
             logger.log(error_result.log_level, f"Claude API error in analyze: {e}")
             return f"❌ {error_result.user_message}"
 
@@ -237,8 +225,8 @@ Respond with 2-3 sentences: What happened, the likely cause, and how to fix it. 
 
         context = self._pending.pop(user_id)
 
-        if not self._anthropic:
-            return "❌ Anthropic API not configured."
+        if not self._provider:
+            return "❌ AI provider not configured."
 
         # Sanitize user-controlled inputs to prevent prompt injection
         safe_name = sanitize_container_name(context.container_name)
@@ -263,22 +251,12 @@ Provide:
 Be specific and actionable."""
 
         try:
-            message = await self._anthropic.messages.create(
-                model=self._model,
+            response = await self._provider.chat(
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=self._detail_max_tokens,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt,
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ],
-                }],
             )
-            return message.content[0].text
+            return response.text
         except Exception as e:
-            error_result = handle_anthropic_error(e)
+            error_result = handle_llm_error(e)
             logger.log(error_result.log_level, f"Claude API error in get_details: {e}")
             return f"❌ {error_result.user_message}"

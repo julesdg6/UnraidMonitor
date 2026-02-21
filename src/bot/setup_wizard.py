@@ -111,7 +111,7 @@ class SetupWizard:
         self._anthropic_client = anthropic_client
         self._unraid_api_key = unraid_api_key
         self._sessions: dict[int, WizardSession] = {}
-        self._classifier = ContainerClassifier(anthropic_client=anthropic_client)
+        self._classifier = ContainerClassifier(provider=anthropic_client)
 
     # -- session helpers --------------------------------------------------
 

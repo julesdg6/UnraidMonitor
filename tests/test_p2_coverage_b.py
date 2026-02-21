@@ -381,25 +381,27 @@ class TestNLProcessorRateLimiting:
     """Tests for NLProcessor rate limiting."""
 
     @pytest.fixture
-    def mock_anthropic(self):
-        client = Mock()
-        response = Mock()
-        response.stop_reason = "end_turn"
-        response.content = [Mock(type="text", text="OK")]
-        client.messages.create = AsyncMock(return_value=response)
-        return client
+    def mock_provider(self):
+        from unittest.mock import MagicMock
+        from src.services.llm.provider import LLMResponse
+        provider = MagicMock()
+        provider.supports_tools = True
+        provider.model_name = "test-model"
+        provider.provider_name = "test"
+        provider.chat = AsyncMock(return_value=LLMResponse(text="OK", stop_reason="end"))
+        return provider
 
     @pytest.fixture
     def mock_executor(self):
         return AsyncMock()
 
     @pytest.mark.asyncio
-    async def test_rate_limiting_rejects_messages_over_limit(self, mock_anthropic, mock_executor):
+    async def test_rate_limiting_rejects_messages_over_limit(self, mock_provider, mock_executor):
         """Messages beyond the per-minute rate limit should be rejected."""
         from src.services.nl_processor import NLProcessor
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=mock_executor,
             rate_limit_per_minute=2,
             rate_limit_per_hour=100,
@@ -420,12 +422,12 @@ class TestNLProcessorRateLimiting:
         assert "wait" in result3.response.lower()
 
     @pytest.mark.asyncio
-    async def test_rate_limiting_is_per_user(self, mock_anthropic, mock_executor):
+    async def test_rate_limiting_is_per_user(self, mock_provider, mock_executor):
         """Rate limiting should be tracked per user, not globally."""
         from src.services.nl_processor import NLProcessor
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=mock_executor,
             rate_limit_per_minute=1,
             rate_limit_per_hour=100,
@@ -446,11 +448,16 @@ class TestNLProcessorMessageLength:
     @pytest.mark.asyncio
     async def test_message_length_over_2000_rejected(self):
         """Messages longer than 2000 characters should be rejected."""
+        from unittest.mock import MagicMock
+        from src.services.llm.provider import LLMResponse
         from src.services.nl_processor import NLProcessor
 
-        mock_anthropic = Mock()
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = True
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=AsyncMock(),
         )
 
@@ -464,16 +471,18 @@ class TestNLProcessorMessageLength:
     @pytest.mark.asyncio
     async def test_message_length_exactly_2000_accepted(self):
         """A message that is exactly 2000 characters should be accepted."""
+        from unittest.mock import MagicMock
+        from src.services.llm.provider import LLMResponse
         from src.services.nl_processor import NLProcessor
 
-        mock_anthropic = Mock()
-        response = Mock()
-        response.stop_reason = "end_turn"
-        response.content = [Mock(type="text", text="Got it")]
-        mock_anthropic.messages.create = AsyncMock(return_value=response)
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = True
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
+        mock_provider.chat = AsyncMock(return_value=LLMResponse(text="Got it", stop_reason="end"))
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=AsyncMock(),
         )
 
@@ -489,28 +498,31 @@ class TestNLProcessorMaxToolIterations:
 
     @pytest.mark.asyncio
     async def test_max_tool_iterations_stops_the_loop(self):
-        """The tool-use loop should stop after max_tool_iterations even if Claude keeps requesting tools."""
+        """The tool-use loop should stop after max_tool_iterations even if provider keeps requesting tools."""
+        from unittest.mock import MagicMock
+        from src.services.llm.provider import LLMResponse, ToolCall
         from src.services.nl_processor import NLProcessor
 
-        mock_anthropic = Mock()
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = True
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
+
         mock_executor = AsyncMock()
         mock_executor.execute = AsyncMock(return_value="tool result data")
 
         # Every response requests another tool use (infinite loop scenario)
-        tool_use_block = Mock(type="tool_use", id="tool_1", name="get_status", input={})
-        tool_response = Mock(stop_reason="tool_use", content=[tool_use_block])
-
-        # After max iterations, the last call should still return tool_use,
-        # but the processor should stop and extract text
-        final_response = Mock(stop_reason="tool_use", content=[tool_use_block])
+        tc = ToolCall(id="tool_1", name="get_status", input={})
+        tool_response = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc])
+        final_response = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc])
 
         # We set max_tool_iterations=3, so we need initial call + 3 loop calls
-        mock_anthropic.messages.create = AsyncMock(
+        mock_provider.chat = AsyncMock(
             side_effect=[tool_response, tool_response, tool_response, final_response]
         )
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=mock_executor,
             max_tool_iterations=3,
         )
@@ -519,33 +531,36 @@ class TestNLProcessorMaxToolIterations:
 
         # The API should have been called exactly 4 times:
         # 1 initial call + 3 iterations (hitting the max)
-        assert mock_anthropic.messages.create.call_count == 4
+        assert mock_provider.chat.call_count == 4
         # The executor should have been called 3 times (once per iteration)
         assert mock_executor.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_tool_loop_exits_early_on_end_turn(self):
-        """The tool loop should exit when Claude responds with end_turn instead of tool_use."""
+        """The tool loop should exit when provider responds with end instead of tool_use."""
+        from unittest.mock import MagicMock
+        from src.services.llm.provider import LLMResponse, ToolCall
         from src.services.nl_processor import NLProcessor
 
-        mock_anthropic = Mock()
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = True
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
+
         mock_executor = AsyncMock()
         mock_executor.execute = AsyncMock(return_value="status info")
 
-        # First call returns tool_use, second returns end_turn
-        tool_use_block = Mock(type="tool_use", id="t1", name="get_status", input={})
-        tool_response = Mock(stop_reason="tool_use", content=[tool_use_block])
-        final_response = Mock(
-            stop_reason="end_turn",
-            content=[Mock(type="text", text="Here is the status.")]
-        )
+        # First call returns tool_use, second returns end
+        tc = ToolCall(id="t1", name="get_status", input={})
+        tool_response = LLMResponse(text="", stop_reason="tool_use", tool_calls=[tc])
+        final_response = LLMResponse(text="Here is the status.", stop_reason="end")
 
-        mock_anthropic.messages.create = AsyncMock(
+        mock_provider.chat = AsyncMock(
             side_effect=[tool_response, final_response]
         )
 
         processor = NLProcessor(
-            anthropic_client=mock_anthropic,
+            provider=mock_provider,
             tool_executor=mock_executor,
             max_tool_iterations=10,
         )
@@ -553,7 +568,7 @@ class TestNLProcessorMaxToolIterations:
         result = await processor.process(user_id=1, message="check status")
 
         # Should have exited early after 1 tool iteration
-        assert mock_anthropic.messages.create.call_count == 2
+        assert mock_provider.chat.call_count == 2
         assert result.response == "Here is the status."
 
 

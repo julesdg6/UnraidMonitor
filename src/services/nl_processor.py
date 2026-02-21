@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from src.services.nl_tools import get_tool_definitions
-from src.utils.api_errors import handle_anthropic_error
+from src.utils.api_errors import handle_llm_error
 from src.utils.rate_limiter import PerUserRateLimiter
 
 logger = logging.getLogger(__name__)
@@ -130,34 +130,35 @@ class ProcessResult:
 
 
 class NLProcessor:
-    """Processes natural language messages using Claude API with tools."""
+    """Processes natural language messages using an LLM provider with tools."""
 
     def __init__(
         self,
-        anthropic_client: Any | None,
-        tool_executor: Any,
-        model: str = "claude-sonnet-4-5-20250929",
+        provider: Any | None = None,
+        tool_executor: Any = None,
         max_tokens: int = 1024,
         max_tool_iterations: int = 10,
         max_conversation_exchanges: int = 5,
         rate_limit_per_minute: int = 10,
         rate_limit_per_hour: int = 60,
+        # Legacy parameter kept for backward compatibility
+        anthropic_client: Any | None = None,
     ):
         """Initialize the NLProcessor.
 
         Args:
-            anthropic_client: Anthropic client for Claude API calls, or None if not configured.
+            provider: LLMProvider for AI API calls, or None if not configured.
             tool_executor: Executor for tool calls (NLToolExecutor instance).
-            model: Claude model to use for processing.
-            max_tokens: Maximum tokens for Claude API responses.
+            max_tokens: Maximum tokens for API responses.
             max_tool_iterations: Maximum tool use loop iterations.
             max_conversation_exchanges: Maximum conversation exchanges to keep in memory.
             rate_limit_per_minute: Max NL requests per user per minute.
             rate_limit_per_hour: Max NL requests per user per hour.
+            anthropic_client: Deprecated. Use provider instead.
         """
-        self._anthropic = anthropic_client
+        # Support legacy anthropic_client kwarg for backward compatibility
+        self._provider = provider if provider is not None else anthropic_client
         self._executor = tool_executor
-        self._model = model
         self._max_tokens = max_tokens
         self._max_tool_iterations = max_tool_iterations
         self.memory_store = MemoryStore(max_exchanges=max_conversation_exchanges)
@@ -178,7 +179,7 @@ class NLProcessor:
         Returns:
             ProcessResult with response text and optional pending_action.
         """
-        if self._anthropic is None:
+        if self._provider is None:
             return ProcessResult(
                 response="Sorry, natural language processing is not configured. Please use /commands instead."
             )
@@ -212,7 +213,7 @@ class NLProcessor:
             messages.append({"role": "user", "content": message})
 
             try:
-                response_text, pending_action = await self._call_claude(messages)
+                response_text, pending_action = await self._call_llm(messages)
 
                 # Store the exchange
                 memory.add_exchange(message, response_text)
@@ -224,7 +225,7 @@ class NLProcessor:
                 return ProcessResult(response=response_text, pending_action=pending_action)
 
             except Exception as e:
-                error_result = handle_anthropic_error(e)
+                error_result = handle_llm_error(e)
                 logger.log(error_result.log_level, f"NL processing error: {e}")
                 return ProcessResult(
                     response=f"Sorry, {error_result.user_message.lower()} Try using /commands instead."
@@ -236,8 +237,8 @@ class NLProcessor:
             self._cached_tools = get_tool_definitions()
         return self._cached_tools
 
-    async def _call_claude(self, messages: list[dict[str, Any]]) -> tuple[str, dict[str, Any] | None]:
-        """Call Claude API with tool support.
+    async def _call_llm(self, messages: list[dict[str, Any]]) -> tuple[str, dict[str, Any] | None]:
+        """Call the LLM provider with tool support.
 
         Args:
             messages: List of message dicts for the conversation.
@@ -245,81 +246,69 @@ class NLProcessor:
         Returns:
             Tuple of (response_text, pending_action).
         """
-        assert self._anthropic is not None  # Caller ensures this via process() check
-        tools = self._get_cached_tools()
+        assert self._provider is not None  # Caller ensures this via process() check
+        tools = self._get_cached_tools() if self._provider.supports_tools else None
         pending_action = None
 
-        # Use structured system prompt with cache_control for prompt caching
-        system_with_cache = [
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
-
-        # Add cache_control to last tool definition for caching
-        cached_tools = list(tools)
-        if cached_tools:
-            cached_tools[-1] = {
-                **cached_tools[-1],
-                "cache_control": {"type": "ephemeral"},
-            }
-
-        # Initial API call
-        response = await self._anthropic.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=system_with_cache,
-            tools=cached_tools,
+        # Initial API call — provider handles system prompt caching internally
+        response = await self._provider.chat(
             messages=messages,
+            system=SYSTEM_PROMPT,
+            max_tokens=self._max_tokens,
+            tools=tools,
         )
 
         # Handle tool use loop with max iterations guard
         iterations = 0
         while response.stop_reason == "tool_use" and iterations < self._max_tool_iterations:
             iterations += 1
-            # Extract tool calls
+
+            if not response.tool_calls:
+                break
+
+            # Execute each tool call
             tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    tool_name = block.name
-                    tool_input = block.input
+            for tc in response.tool_calls:
+                result = await self._executor.execute(tc.name, tc.input)
 
-                    # Execute the tool
-                    result = await self._executor.execute(tool_name, tool_input)
+                # Check for confirmation needed
+                if result.startswith("CONFIRMATION_NEEDED:"):
+                    _, action, container = result.split(":", 2)
+                    pending_action = {"action": action, "container": container}
+                    result = f"Confirmation needed to {action} {container}."
 
-                    # Check for confirmation needed
-                    if result.startswith("CONFIRMATION_NEEDED:"):
-                        _, action, container = result.split(":", 2)
-                        pending_action = {"action": action, "container": container}
-                        result = f"Confirmation needed to {action} {container}."
-
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
+                tool_results.append({
+                    "role": "tool_result",
+                    "tool_use_id": tc.id,
+                    "content": result,
+                })
 
             # Continue conversation with tool results
             messages = messages + [
-                {"role": "assistant", "content": response.content},
-                {"role": "user", "content": tool_results},
+                {
+                    "role": "assistant",
+                    "content": response.text,
+                    "tool_calls": [
+                        {"id": tc.id, "name": tc.name, "input": tc.input}
+                        for tc in response.tool_calls
+                    ],
+                },
+                *tool_results,
             ]
 
-            response = await self._anthropic.messages.create(
-                model=self._model,
-                max_tokens=self._max_tokens,
-                system=system_with_cache,
-                tools=cached_tools,
+            response = await self._provider.chat(
                 messages=messages,
+                system=SYSTEM_PROMPT,
+                max_tokens=self._max_tokens,
+                tools=tools,
             )
 
         if iterations >= self._max_tool_iterations:
             logger.warning("Max tool iterations reached")
 
-        # Extract final text response
-        text_parts = [block.text for block in response.content if block.type == "text"]
-        response_text = "\n".join(text_parts) if text_parts else "I couldn't generate a response."
+        # Graceful degradation for non-tool-supporting providers
+        if not self._provider.supports_tools:
+            note = "\n\n_(Tool actions unavailable with this model — use /commands for container control)_"
+            return (response.text or "I couldn't generate a response.") + note, None
 
-        return response_text, pending_action
+        return response.text or "I couldn't generate a response.", pending_action

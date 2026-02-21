@@ -281,15 +281,13 @@ def register_commands(
         )
 
         # Set up diagnostic service
-        _diag_model = ai_config.diagnostic_model if ai_config else "claude-haiku-4-5-20251001"
         _diag_brief = ai_config.diagnostic_brief_max_tokens if ai_config else 300
         _diag_detail = ai_config.diagnostic_detail_max_tokens if ai_config else 800
         _diag_expiry = ai_config.diagnostic_context_expiry_seconds if ai_config else 600
 
         diagnostic_service = DiagnosticService(
             docker_client,
-            anthropic_client,
-            model=_diag_model,
+            provider=anthropic_client,
             brief_max_tokens=_diag_brief,
             detail_max_tokens=_diag_detail,
             context_expiry_seconds=_diag_expiry,

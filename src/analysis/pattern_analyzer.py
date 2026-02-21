@@ -7,11 +7,11 @@ import re
 import time
 from typing import TYPE_CHECKING
 
-from src.utils.api_errors import handle_anthropic_error
+from src.utils.api_errors import handle_llm_error
 from src.utils.sanitize import sanitize_container_name, sanitize_logs
 
 if TYPE_CHECKING:
-    import anthropic
+    from src.services.llm.provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +44,11 @@ class PatternAnalyzer:
 
     def __init__(
         self,
-        anthropic_client: "anthropic.AsyncAnthropic | None",
-        model: str = "claude-haiku-4-5-20251001",
+        provider: "LLMProvider | None",
         max_tokens: int = 500,
         context_lines: int = 30,
     ):
-        self._client = anthropic_client
-        self._model = model
+        self._provider = provider
         self._max_tokens = max_tokens
         self._context_lines = context_lines
         self._cache: dict[str, tuple[float, dict]] = {}
@@ -66,8 +64,8 @@ class PatternAnalyzer:
         Returns:
             Dict with pattern, match_type, explanation or None if analysis failed.
         """
-        if self._client is None:
-            logger.warning("No Anthropic client available for pattern analysis")
+        if self._provider is None:
+            logger.warning("No AI provider available for pattern analysis")
             return None
 
         # Check cache
@@ -90,13 +88,12 @@ class PatternAnalyzer:
         )
 
         try:
-            response = await self._client.messages.create(
-                model=self._model,
-                max_tokens=self._max_tokens,
+            response = await self._provider.chat(
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=self._max_tokens,
             )
 
-            text = response.content[0].text
+            text = response.text
 
             # Extract JSON from response (may be wrapped in markdown)
             json_match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
@@ -129,6 +126,6 @@ class PatternAnalyzer:
             return result
 
         except Exception as e:
-            error_result = handle_anthropic_error(e)
+            error_result = handle_llm_error(e)
             logger.log(error_result.log_level, f"Error analyzing pattern with Haiku: {e}")
             return None

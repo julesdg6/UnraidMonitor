@@ -2,6 +2,22 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, AsyncMock
 
+from src.services.llm.provider import LLMResponse
+
+
+def make_mock_provider(text=""):
+    """Create a mock LLM provider returning the given text."""
+    provider = MagicMock()
+    provider.supports_tools = False
+    provider.model_name = "test-model"
+    provider.provider_name = "test"
+    provider.chat = AsyncMock(return_value=LLMResponse(
+        text=text,
+        stop_reason="end",
+        tool_calls=None,
+    ))
+    return provider
+
 
 def test_diagnostic_context_creation():
     """Test DiagnosticContext dataclass creation."""
@@ -43,7 +59,7 @@ async def test_diagnostic_service_gathers_context():
     mock_client = MagicMock()
     mock_client.containers.get.return_value = mock_container
 
-    service = DiagnosticService(docker_client=mock_client, anthropic_client=None)
+    service = DiagnosticService(docker_client=mock_client, provider=None)
 
     context = await service.gather_context("overseerr", lines=50)
 
@@ -63,7 +79,7 @@ async def test_diagnostic_service_handles_missing_container():
     mock_client = MagicMock()
     mock_client.containers.get.side_effect = docker.errors.NotFound("not found")
 
-    service = DiagnosticService(docker_client=mock_client, anthropic_client=None)
+    service = DiagnosticService(docker_client=mock_client, provider=None)
 
     context = await service.gather_context("nonexistent", lines=50)
 
@@ -72,19 +88,15 @@ async def test_diagnostic_service_handles_missing_container():
 
 @pytest.mark.asyncio
 async def test_diagnostic_service_analyzes_with_claude():
-    """Test calling Claude API for analysis."""
+    """Test calling AI provider for analysis."""
     from src.services.diagnostic import DiagnosticService, DiagnosticContext
-    from unittest.mock import AsyncMock
 
     mock_client = MagicMock()
+    mock_provider = make_mock_provider(
+        "The container crashed due to OOM. Increase memory limits."
+    )
 
-    # Mock Anthropic client
-    mock_anthropic = MagicMock()
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text="The container crashed due to OOM. Increase memory limits.")]
-    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
-
-    service = DiagnosticService(docker_client=mock_client, anthropic_client=mock_anthropic)
+    service = DiagnosticService(docker_client=mock_client, provider=mock_provider)
 
     context = DiagnosticContext(
         container_name="overseerr",
@@ -98,7 +110,7 @@ async def test_diagnostic_service_analyzes_with_claude():
     result = await service.analyze(context)
 
     assert "OOM" in result or "memory" in result.lower()
-    mock_anthropic.messages.create.assert_called_once()
+    mock_provider.chat.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -107,12 +119,11 @@ async def test_diagnostic_service_stores_and_retrieves_context():
     from src.services.diagnostic import DiagnosticService, DiagnosticContext
 
     mock_client = MagicMock()
-    mock_anthropic = MagicMock()
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text="Detailed analysis: The root cause is...")]
-    mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
+    mock_provider = make_mock_provider(
+        "Detailed analysis: The root cause is..."
+    )
 
-    service = DiagnosticService(docker_client=mock_client, anthropic_client=mock_anthropic)
+    service = DiagnosticService(docker_client=mock_client, provider=mock_provider)
 
     context = DiagnosticContext(
         container_name="overseerr",

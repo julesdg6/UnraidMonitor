@@ -3,31 +3,40 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
+from src.services.llm.provider import LLMResponse
+
 
 @pytest.fixture
-def mock_anthropic_client():
-    client = MagicMock()
-    return client
+def mock_provider():
+    provider = MagicMock()
+    provider.supports_tools = False
+    provider.model_name = "test-model"
+    provider.provider_name = "test"
+    provider.chat = AsyncMock(return_value=LLMResponse(
+        text="",
+        stop_reason="end",
+        tool_calls=None,
+    ))
+    return provider
 
 
 class TestPatternAnalyzer:
     @pytest.mark.asyncio
-    async def test_analyze_returns_pattern(self, mock_anthropic_client):
+    async def test_analyze_returns_pattern(self, mock_provider):
         from src.analysis.pattern_analyzer import PatternAnalyzer
 
-        # Mock Haiku response
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock()]
-        mock_response.content[0].text = '''```json
+        mock_provider.chat = AsyncMock(return_value=LLMResponse(
+            text='''```json
 {
     "pattern": "Connection refused to .* on port \\\\d+",
     "match_type": "regex",
     "explanation": "Connection refused errors to any host on any port"
 }
-```'''
-        mock_anthropic_client.messages.create = AsyncMock(return_value=mock_response)
+```''',
+            stop_reason="end",
+        ))
 
-        analyzer = PatternAnalyzer(mock_anthropic_client)
+        analyzer = PatternAnalyzer(mock_provider)
 
         result = await analyzer.analyze_error(
             container="sonarr",
@@ -41,21 +50,21 @@ class TestPatternAnalyzer:
         assert "Connection refused" in result["explanation"]
 
     @pytest.mark.asyncio
-    async def test_analyze_returns_substring_for_static_errors(self, mock_anthropic_client):
+    async def test_analyze_returns_substring_for_static_errors(self, mock_provider):
         from src.analysis.pattern_analyzer import PatternAnalyzer
 
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock()]
-        mock_response.content[0].text = '''```json
+        mock_provider.chat = AsyncMock(return_value=LLMResponse(
+            text='''```json
 {
     "pattern": "Database connection pool exhausted",
     "match_type": "substring",
     "explanation": "Database pool exhaustion errors"
 }
-```'''
-        mock_anthropic_client.messages.create = AsyncMock(return_value=mock_response)
+```''',
+            stop_reason="end",
+        ))
 
-        analyzer = PatternAnalyzer(mock_anthropic_client)
+        analyzer = PatternAnalyzer(mock_provider)
 
         result = await analyzer.analyze_error(
             container="app",
@@ -84,32 +93,38 @@ class TestPatternAnalyzer:
         """Same error should return cached result without second API call."""
         from src.analysis.pattern_analyzer import PatternAnalyzer
 
-        mock_client = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"pattern": "error.*timeout", "match_type": "regex", "explanation": "Timeout errors"}')]
-        mock_client.messages.create.return_value = mock_response
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = False
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
+        mock_provider.chat = AsyncMock(return_value=LLMResponse(
+            text='{"pattern": "error.*timeout", "match_type": "regex", "explanation": "Timeout errors"}',
+            stop_reason="end",
+        ))
 
-        analyzer = PatternAnalyzer(anthropic_client=mock_client)
+        analyzer = PatternAnalyzer(provider=mock_provider)
 
         result1 = await analyzer.analyze_error("plex", "Connection timeout error", [])
         result2 = await analyzer.analyze_error("plex", "Connection timeout error", [])
 
         assert result1 == result2
-        assert mock_client.messages.create.call_count == 1
+        assert mock_provider.chat.call_count == 1
 
     @pytest.mark.asyncio
     async def test_analyze_error_cache_expires(self):
         """Expired cache entries should trigger a new API call."""
-        import time
-        from unittest.mock import patch
         from src.analysis.pattern_analyzer import PatternAnalyzer
 
-        mock_client = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"pattern": "error.*timeout", "match_type": "regex", "explanation": "Timeout errors"}')]
-        mock_client.messages.create.return_value = mock_response
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = False
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
+        mock_provider.chat = AsyncMock(return_value=LLMResponse(
+            text='{"pattern": "error.*timeout", "match_type": "regex", "explanation": "Timeout errors"}',
+            stop_reason="end",
+        ))
 
-        analyzer = PatternAnalyzer(anthropic_client=mock_client)
+        analyzer = PatternAnalyzer(provider=mock_provider)
 
         result1 = await analyzer.analyze_error("plex", "Connection timeout error", [])
 
@@ -121,23 +136,25 @@ class TestPatternAnalyzer:
         result2 = await analyzer.analyze_error("plex", "Connection timeout error", [])
 
         assert result1 == result2
-        assert mock_client.messages.create.call_count == 2
+        assert mock_provider.chat.call_count == 2
 
     @pytest.mark.asyncio
     async def test_analyze_error_failed_result_not_cached(self):
         """Failed analyses (returning None) should not be cached."""
         from src.analysis.pattern_analyzer import PatternAnalyzer
 
-        mock_client = AsyncMock()
+        mock_provider = MagicMock()
+        mock_provider.supports_tools = False
+        mock_provider.model_name = "test-model"
+        mock_provider.provider_name = "test"
         # First call: invalid JSON response
-        bad_response = MagicMock()
-        bad_response.content = [MagicMock(text='not valid json')]
         # Second call: valid response
-        good_response = MagicMock()
-        good_response.content = [MagicMock(text='{"pattern": "err", "match_type": "substring", "explanation": "Errors"}')]
-        mock_client.messages.create.side_effect = [bad_response, good_response]
+        mock_provider.chat = AsyncMock(side_effect=[
+            LLMResponse(text='not valid json', stop_reason="end"),
+            LLMResponse(text='{"pattern": "err", "match_type": "substring", "explanation": "Errors"}', stop_reason="end"),
+        ])
 
-        analyzer = PatternAnalyzer(anthropic_client=mock_client)
+        analyzer = PatternAnalyzer(provider=mock_provider)
 
         result1 = await analyzer.analyze_error("plex", "Some error", [])
         assert result1 is None
@@ -145,4 +162,4 @@ class TestPatternAnalyzer:
         result2 = await analyzer.analyze_error("plex", "Some error", [])
         assert result2 is not None
         assert result2["pattern"] == "err"
-        assert mock_client.messages.create.call_count == 2
+        assert mock_provider.chat.call_count == 2

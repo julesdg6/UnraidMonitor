@@ -6,11 +6,11 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from src.utils.api_errors import handle_anthropic_error
+from src.utils.api_errors import handle_llm_error
 from src.utils.sanitize import sanitize_container_name
 
 if TYPE_CHECKING:
-    import anthropic
+    from src.services.llm.provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +88,8 @@ PATTERN_RULES: list[tuple[list[str], list[str], set[str]]] = [
 class ContainerClassifier:
     """Classifies Docker containers by role using pattern matching and optional AI."""
 
-    def __init__(self, anthropic_client: "anthropic.AsyncAnthropic | None" = None):
-        self._client = anthropic_client
+    def __init__(self, provider: "LLMProvider | None" = None):
+        self._provider = provider
 
     def classify_by_pattern(self, name: str, image: str) -> ContainerClassification:
         """Classify a container using pattern matching only."""
@@ -117,7 +117,7 @@ class ContainerClassifier:
         self, unclassified: list[ContainerClassification]
     ) -> list[ContainerClassification]:
         """Classify containers using Haiku AI."""
-        if not self._client or not unclassified:
+        if not self._provider or not unclassified:
             return unclassified
 
         container_list = "\n".join(
@@ -127,12 +127,11 @@ class ContainerClassifier:
         prompt = CLASSIFY_PROMPT.format(container_list=container_list)
 
         try:
-            response = await self._client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=1024,
+            response = await self._provider.chat(
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024,
             )
-            text = response.content[0].text
+            text = response.text
 
             # Extract JSON array from response
             json_match = re.search(r"\[.*\]", text, re.DOTALL)
@@ -156,7 +155,7 @@ class ContainerClassifier:
             return unclassified
 
         except Exception as e:
-            error_result = handle_anthropic_error(e)
+            error_result = handle_llm_error(e)
             logger.log(error_result.log_level, f"AI classification failed: {e}")
             return unclassified
 
