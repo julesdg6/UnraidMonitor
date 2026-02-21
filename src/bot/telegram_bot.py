@@ -232,7 +232,7 @@ def register_commands(
     state: ContainerStateManager,
     docker_client: docker.DockerClient | None = None,
     protected_containers: list[str] | None = None,
-    anthropic_client: Any | None = None,
+    registry: Any | None = None,
     resource_monitor: Any | None = None,
     ignore_manager: Any | None = None,
     recent_errors_buffer: Any | None = None,
@@ -285,9 +285,10 @@ def register_commands(
         _diag_detail = ai_config.diagnostic_detail_max_tokens if ai_config else 800
         _diag_expiry = ai_config.diagnostic_context_expiry_seconds if ai_config else 600
 
+        diag_provider = registry.get_provider("diagnostic") if registry else None
         diagnostic_service = DiagnosticService(
             docker_client,
-            provider=anthropic_client,
+            provider=diag_provider,
             brief_max_tokens=_diag_brief,
             detail_max_tokens=_diag_detail,
             context_expiry_seconds=_diag_expiry,

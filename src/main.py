@@ -180,20 +180,68 @@ async def start_monitoring(
     bot_config = config.bot
     docker_config = config.docker
 
-    # Initialize Anthropic client if API key is configured
+    from src.services.llm.registry import ProviderRegistry
+    from src.services.llm.ollama_provider import OllamaProvider
+    import openai as openai_sdk
+
+    # Build provider registry from available API keys
     anthropic_client = None
-    pattern_analyzer = None
+    openai_client = None
+    ollama_client = None
+    ollama_models = []
+
     if config.anthropic_api_key:
         anthropic_client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
-        pattern_analyzer = PatternAnalyzer(
-            anthropic_client,
-            model=ai_config.pattern_analyzer_model,
-            max_tokens=ai_config.pattern_analyzer_max_tokens,
-            context_lines=ai_config.pattern_analyzer_context_lines,
+
+    if settings.openai_api_key:
+        openai_client = openai_sdk.AsyncOpenAI(api_key=settings.openai_api_key)
+
+    if config.ai.ollama_host:
+        ollama_client = openai_sdk.AsyncOpenAI(
+            base_url=f"{config.ai.ollama_host}/v1",
+            api_key="ollama",
         )
-        logger.info("Anthropic client initialized for AI diagnostics and pattern analysis")
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                ollama_models = await OllamaProvider.discover_models(
+                    host=config.ai.ollama_host, session=session,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to discover Ollama models: {e}")
+
+    # Filter out None values from feature_models
+    feature_models_raw = {
+        "nl_processor": ai_config.nl_processor_model,
+        "diagnostic": ai_config.diagnostic_model,
+        "pattern_analyzer": ai_config.pattern_analyzer_model,
+    }
+    feature_models = {k: v for k, v in feature_models_raw.items() if v is not None}
+
+    registry = ProviderRegistry(
+        anthropic_client=anthropic_client,
+        openai_client=openai_client,
+        ollama_client=ollama_client,
+        ollama_models=ollama_models,
+        default_model=ai_config.default_model,
+        feature_models=feature_models,
+    )
+
+    # Log which providers are available
+    providers = registry.get_available_providers()
+    if providers:
+        provider_names = ", ".join(p.display_name for p in providers)
+        logger.info(f"LLM providers available: {provider_names}")
     else:
-        logger.warning("ANTHROPIC_API_KEY not set - /diagnose and smart ignore patterns will be disabled")
+        logger.warning("No LLM providers configured - AI features will be disabled")
+
+    # Create pattern analyzer using registry
+    pattern_analyzer_provider = registry.get_provider("pattern_analyzer")
+    pattern_analyzer = PatternAnalyzer(
+        provider=pattern_analyzer_provider,
+        max_tokens=ai_config.pattern_analyzer_max_tokens,
+        context_lines=ai_config.pattern_analyzer_context_lines,
+    ) if pattern_analyzer_provider else None
 
     # Initialize state manager
     state = ContainerStateManager()
@@ -466,7 +514,8 @@ async def start_monitoring(
 
     # Create NL processor if enabled
     nl_processor = None
-    if anthropic_client and monitor._client:
+    nl_provider = registry.get_provider("nl_processor")
+    if nl_provider and monitor._client:
         from src.services.nl_processor import NLProcessor
         from src.services.nl_tools import NLToolExecutor
 
@@ -481,9 +530,8 @@ async def start_monitoring(
             log_max_chars=bot_config.nl_log_max_chars,
         )
         nl_processor = NLProcessor(
-            anthropic_client=anthropic_client,
+            provider=nl_provider,
             tool_executor=nl_executor,
-            model=ai_config.nl_processor_model,
             max_tokens=ai_config.nl_processor_max_tokens,
             max_tool_iterations=ai_config.nl_max_tool_iterations,
             max_conversation_exchanges=ai_config.nl_max_conversation_exchanges,
@@ -495,7 +543,7 @@ async def start_monitoring(
         state,
         docker_client=monitor._client,
         protected_containers=config.protected_containers,
-        anthropic_client=anthropic_client,
+        registry=registry,
         resource_monitor=resource_monitor,
         ignore_manager=ignore_manager,
         recent_errors_buffer=recent_errors_buffer,
@@ -638,9 +686,13 @@ async def main() -> None:
     bg = _BackgroundTasks()
 
     # Optionally create Anthropic client for the wizard (from env vars)
-    anthropic_client = None
+    wizard_provider = None
     if settings.anthropic_api_key:
-        anthropic_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        from src.services.llm.anthropic_provider import AnthropicProvider
+        _wizard_anthropic_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        wizard_provider = AnthropicProvider(
+            client=_wizard_anthropic_client, model="claude-haiku-4-5-20251001"
+        )
 
     if first_run:
         # ---------------------------------------------------------------
@@ -658,7 +710,7 @@ async def main() -> None:
         wizard = SetupWizard(
             config_path=config_path,
             docker_client=docker_client,
-            anthropic_client=anthropic_client,
+            anthropic_client=wizard_provider,
             unraid_api_key=settings.unraid_api_key,
         )
 
@@ -710,7 +762,7 @@ async def main() -> None:
             wizard = SetupWizard(
                 config_path=config_path,
                 docker_client=docker_client,
-                anthropic_client=anthropic_client,
+                anthropic_client=wizard_provider,
                 unraid_api_key=settings.unraid_api_key,
             )
 
