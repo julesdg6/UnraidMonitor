@@ -55,31 +55,36 @@ class AlertManagerProxy:
         self.chat_id_store = chat_id_store
         self.error_display_max_chars = error_display_max_chars
         self._queued_alerts: list[tuple[str, dict]] = []
-        self._cached_manager: AlertManager | None = None
-        self._cached_chat_id: int | None = None
+        self._managers: dict[int, AlertManager] = {}
         self._send_lock = asyncio.Lock()
 
     def _get_manager(self, chat_id: int) -> AlertManager:
         """Get or create a cached AlertManager for the given chat_id."""
-        if self._cached_manager is None or self._cached_chat_id != chat_id:
-            self._cached_manager = AlertManager(self.bot, chat_id, error_display_max_chars=self.error_display_max_chars)
-            self._cached_chat_id = chat_id
-        return self._cached_manager
+        if chat_id not in self._managers:
+            self._managers[chat_id] = AlertManager(
+                self.bot, chat_id, error_display_max_chars=self.error_display_max_chars
+            )
+        return self._managers[chat_id]
 
     async def _send_alert(self, method_name: str, **kwargs):
         """Generic alert sender that delegates to AlertManager.
 
-        Uses a lock to serialize sends and a small delay between them,
-        preventing Telegram rate limit abuse during alert storms.
+        Sends to all known chat IDs. Uses a lock to serialize sends
+        and a small delay between them, preventing Telegram rate limit
+        abuse during alert storms.
         """
-        chat_id = self.chat_id_store.get_chat_id()
-        if chat_id:
+        chat_ids = self.chat_id_store.get_all_chat_ids()
+        if chat_ids:
             async with self._send_lock:
                 # Flush any queued alerts first
                 if self._queued_alerts:
-                    await self._flush_queue(chat_id)
-                manager = self._get_manager(chat_id)
-                await getattr(manager, method_name)(**kwargs)
+                    await self._flush_queue(chat_ids)
+                for chat_id in chat_ids:
+                    try:
+                        manager = self._get_manager(chat_id)
+                        await getattr(manager, method_name)(**kwargs)
+                    except Exception as e:
+                        logger.error(f"Failed to send alert to {chat_id}: {e}")
                 await asyncio.sleep(self._SEND_DELAY)
         else:
             if len(self._queued_alerts) < self.MAX_QUEUED:
@@ -88,17 +93,18 @@ class AlertManagerProxy:
             else:
                 logger.warning(f"Alert queue full, dropping {method_name.replace('_', ' ')}")
 
-    async def _flush_queue(self, chat_id: int) -> None:
-        """Deliver all queued alerts."""
+    async def _flush_queue(self, chat_ids: set[int]) -> None:
+        """Deliver all queued alerts to all chat IDs."""
         queued = self._queued_alerts[:]
         self._queued_alerts.clear()
-        logger.info(f"Flushing {len(queued)} queued alerts")
-        manager = self._get_manager(chat_id)
+        logger.info(f"Flushing {len(queued)} queued alerts to {len(chat_ids)} users")
         for method_name, kwargs in queued:
-            try:
-                await getattr(manager, method_name)(**kwargs)
-            except Exception as e:
-                logger.error(f"Failed to send queued alert: {e}")
+            for chat_id in chat_ids:
+                try:
+                    manager = self._get_manager(chat_id)
+                    await getattr(manager, method_name)(**kwargs)
+                except Exception as e:
+                    logger.error(f"Failed to send queued alert to {chat_id}: {e}")
 
     async def send_crash_alert(self, **kwargs):
         await self._send_alert("send_crash_alert", **kwargs)

@@ -10,18 +10,22 @@ logger = logging.getLogger(__name__)
 
 
 class ChatIdStore:
-    """Simple in-memory storage for the alert chat ID."""
+    """In-memory storage for alert chat IDs (supports multiple users)."""
 
     def __init__(self):
-        self._chat_id: int | None = None
+        self._chat_ids: set[int] = set()
 
     def set_chat_id(self, chat_id: int) -> None:
-        """Store the chat ID."""
-        self._chat_id = chat_id
+        """Add a chat ID to the set."""
+        self._chat_ids.add(chat_id)
 
     def get_chat_id(self) -> int | None:
-        """Get the stored chat ID."""
-        return self._chat_id
+        """Get any stored chat ID (backward compat)."""
+        return next(iter(self._chat_ids), None)
+
+    def get_all_chat_ids(self) -> set[int]:
+        """Get all stored chat IDs."""
+        return set(self._chat_ids)
 
 
 class AlertManager:

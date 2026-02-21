@@ -98,6 +98,104 @@ async def test_chat_id_store_returns_none_when_not_set():
     assert store.get_chat_id() is None
 
 
+class TestChatIdStore:
+    """Tests for multi-user ChatIdStore."""
+
+    def test_stores_multiple_chat_ids(self):
+        from src.alerts.manager import ChatIdStore
+
+        store = ChatIdStore()
+        store.set_chat_id(111)
+        store.set_chat_id(222)
+        assert store.get_all_chat_ids() == {111, 222}
+
+    def test_get_chat_id_returns_any_valid(self):
+        from src.alerts.manager import ChatIdStore
+
+        store = ChatIdStore()
+        store.set_chat_id(111)
+        store.set_chat_id(222)
+        # Backward compat: get_chat_id returns any valid chat_id
+        assert store.get_chat_id() in {111, 222}
+
+    def test_deduplicates(self):
+        from src.alerts.manager import ChatIdStore
+
+        store = ChatIdStore()
+        store.set_chat_id(111)
+        store.set_chat_id(111)
+        assert store.get_all_chat_ids() == {111}
+
+    def test_get_all_empty(self):
+        from src.alerts.manager import ChatIdStore
+
+        store = ChatIdStore()
+        assert store.get_all_chat_ids() == set()
+
+
+@pytest.mark.asyncio
+async def test_proxy_sends_to_all_users():
+    """AlertManagerProxy should send each alert to all registered chat IDs."""
+    from src.main import AlertManagerProxy
+    from src.alerts.manager import ChatIdStore
+    from unittest.mock import patch
+
+    bot = MagicMock()
+    store = ChatIdStore()
+    store.set_chat_id(111)
+    store.set_chat_id(222)
+
+    proxy = AlertManagerProxy(bot, store)
+
+    with patch("src.main.AlertManager") as MockAM:
+        mock_instance = MagicMock()
+        mock_instance.send_crash_alert = AsyncMock()
+        MockAM.return_value = mock_instance
+
+        await proxy.send_crash_alert(
+            container_name="test", exit_code=1, image="img"
+        )
+
+        # Should have created managers for both chat IDs
+        assert MockAM.call_count == 2
+        chat_ids_called = {call.args[1] for call in MockAM.call_args_list}
+        assert chat_ids_called == {111, 222}
+
+
+@pytest.mark.asyncio
+async def test_proxy_flushes_queue_to_all_users():
+    """Queued alerts should be flushed to all users when chat IDs become available."""
+    from src.main import AlertManagerProxy
+    from src.alerts.manager import ChatIdStore
+    from unittest.mock import patch
+
+    bot = MagicMock()
+    store = ChatIdStore()
+    proxy = AlertManagerProxy(bot, store)
+
+    # Queue alert while no users
+    with patch("src.main.AlertManager"):
+        await proxy.send_crash_alert(container_name="r", exit_code=1, image="i")
+    assert len(proxy._queued_alerts) == 1
+
+    # Now register two users
+    store.set_chat_id(111)
+    store.set_chat_id(222)
+
+    with patch("src.main.AlertManager") as MockAM:
+        mock_instance = MagicMock()
+        mock_instance.send_crash_alert = AsyncMock()
+        mock_instance.send_log_error_alert = AsyncMock()
+        MockAM.return_value = mock_instance
+
+        await proxy.send_log_error_alert(container_name="s", error_line="err")
+
+        # Queued crash alert should have been sent to both + the new alert to both
+        # Total: 2 (flush to 111, 222) + 2 (new alert to 111, 222) = 4 calls
+        assert mock_instance.send_crash_alert.call_count == 2
+        assert mock_instance.send_log_error_alert.call_count == 2
+
+
 @pytest.mark.asyncio
 async def test_send_resource_alert_cpu():
     """Test sending CPU resource alert."""
