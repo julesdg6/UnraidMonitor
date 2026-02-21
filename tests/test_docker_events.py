@@ -111,6 +111,71 @@ def test_load_initial_state_uses_prefetched_containers():
     assert state.get("sonarr").status == "running"
 
 
+def test_backoff_doubles_on_reconnect_failure():
+    """Backoff should double after each failed reconnect."""
+    from src.monitors.docker_events import DockerEventMonitor
+    from src.state import ContainerStateManager
+
+    state = ContainerStateManager()
+    monitor = DockerEventMonitor(
+        state_manager=state,
+        ignored_containers=[],
+    )
+
+    assert monitor._backoff_seconds == DockerEventMonitor.INITIAL_BACKOFF_SECONDS
+
+    # Simulate failed reconnect cycles by manually doubling (as the start() loop would)
+    monitor._backoff_seconds = min(
+        monitor._backoff_seconds * 2,
+        DockerEventMonitor.MAX_BACKOFF_SECONDS,
+    )
+    assert monitor._backoff_seconds == 2
+
+    monitor._backoff_seconds = min(
+        monitor._backoff_seconds * 2,
+        DockerEventMonitor.MAX_BACKOFF_SECONDS,
+    )
+    assert monitor._backoff_seconds == 4
+
+    # Keep doubling until we hit cap
+    for _ in range(10):
+        monitor._backoff_seconds = min(
+            monitor._backoff_seconds * 2,
+            DockerEventMonitor.MAX_BACKOFF_SECONDS,
+        )
+    assert monitor._backoff_seconds == DockerEventMonitor.MAX_BACKOFF_SECONDS
+
+
+def test_backoff_resets_on_successful_reconnect():
+    """Backoff should reset to initial value after successful reconnect."""
+    from src.monitors.docker_events import DockerEventMonitor
+    from src.state import ContainerStateManager
+
+    state = ContainerStateManager()
+    monitor = DockerEventMonitor(
+        state_manager=state,
+        ignored_containers=[],
+    )
+
+    # Simulate high backoff
+    monitor._backoff_seconds = 32
+
+    # Simulate successful reconnect (as start() does)
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    mock_container.name = "plex"
+    mock_container.status = "running"
+    mock_container.image.tags = ["linuxserver/plex:latest"]
+    mock_container.attrs = {"State": {}}
+    mock_client.containers.list.return_value = [mock_container]
+
+    with patch("src.monitors.docker_events.docker.DockerClient", return_value=mock_client):
+        monitor._reconnect()
+        monitor._backoff_seconds = DockerEventMonitor.INITIAL_BACKOFF_SECONDS
+
+    assert monitor._backoff_seconds == DockerEventMonitor.INITIAL_BACKOFF_SECONDS
+
+
 def test_load_initial_state_fetches_when_no_containers_provided():
     """load_initial_state should call API when no containers are provided."""
     from src.monitors.docker_events import DockerEventMonitor

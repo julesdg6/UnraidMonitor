@@ -269,6 +269,52 @@ class TestStateMachine:
         mock_on_ask_restart.assert_called_once_with("bitmagnet")
 
 
+class TestNormalToCriticalSkip:
+    @pytest.mark.asyncio
+    @patch("src.monitors.memory_monitor.psutil")
+    async def test_normal_to_critical_direct(
+        self, mock_psutil, memory_config, mock_docker_client, mock_on_alert, mock_on_ask_restart
+    ):
+        """Memory jumping from normal directly to critical should go to CRITICAL."""
+        mock_psutil.virtual_memory.return_value = MagicMock(percent=96.0)
+        mock_docker_client.containers.list.return_value = []
+
+        monitor = MemoryMonitor(
+            docker_client=mock_docker_client,
+            config=memory_config,
+            on_alert=mock_on_alert,
+            on_ask_restart=mock_on_ask_restart,
+        )
+        assert monitor._state == MemoryState.NORMAL
+
+        await monitor._check_memory()
+
+        assert monitor._state == MemoryState.CRITICAL
+        mock_on_alert.assert_called()
+        args = mock_on_alert.call_args[0]
+        assert args[2] == "critical"
+
+    @pytest.mark.asyncio
+    @patch("src.monitors.memory_monitor.psutil")
+    async def test_normal_stays_normal_below_warning(
+        self, mock_psutil, memory_config, mock_docker_client, mock_on_alert, mock_on_ask_restart
+    ):
+        """Memory below warning should stay NORMAL."""
+        mock_psutil.virtual_memory.return_value = MagicMock(percent=70.0)
+
+        monitor = MemoryMonitor(
+            docker_client=mock_docker_client,
+            config=memory_config,
+            on_alert=mock_on_alert,
+            on_ask_restart=mock_on_ask_restart,
+        )
+
+        await monitor._check_memory()
+
+        assert monitor._state == MemoryState.NORMAL
+        mock_on_alert.assert_not_called()
+
+
 class TestKillCountdown:
     @pytest.mark.asyncio
     @patch("src.monitors.memory_monitor.psutil")
