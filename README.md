@@ -5,17 +5,34 @@ A Telegram bot for monitoring Docker containers and Unraid servers. Get real-tim
 ## Features
 
 - **Interactive Setup Wizard** - Guided first-run setup via Telegram with auto-classification of containers
-- **Container Monitoring** - Status, health checks, and crash detection
+- **Container Monitoring** - Status, health checks, crash detection, and recovery notifications
 - **Resource Alerts** - CPU/memory usage with configurable thresholds
 - **Log Watching** - Automatic alerts when errors appear in container logs
 - **AI Diagnostics** - LLM-powered log analysis and troubleshooting (Anthropic, OpenAI, or Ollama)
-- **Smart Ignore Patterns** - AI-generated patterns to filter known errors
+- **Smart Ignore Patterns** - AI-generated patterns to filter known errors, with interactive toggle selection
 - **Multi-Provider LLM** - Switch between Anthropic Claude, OpenAI GPT, or local Ollama models at runtime
-- **Container Control** - Start, stop, restart, and pull containers remotely
+- **Container Control** - Start, stop, restart, and pull containers with inline confirmation buttons
 - **Unraid Server Monitoring** - CPU/memory, temperatures, UPS status, and array health
 - **Memory Pressure Management** - Automatic container priority handling during high memory
 - **Mute System** - Temporarily silence alerts per container, server, or array
 - **Natural Language Chat** - Ask questions naturally instead of using commands
+- **Interactive Dashboard** - `/manage` hub for status, resources, ignores, and mutes
+- **Sectioned Help** - `/help` with navigable category buttons instead of a text wall
+
+## What's New in v0.9.0
+
+This release overhauls the bot's UX with inline keyboard buttons throughout:
+
+- **Button confirmations** - `/restart`, `/stop`, `/start`, `/pull` now show ✅ Confirm / ❌ Cancel buttons
+- **Diagnose details button** - After AI diagnosis, tap 📋 More Details instead of typing
+- **Toggle ignore selection** - `/ignore` shows ☐/☑ checkboxes per error with Select All
+- **Manage with delete buttons** - Remove ignores and mutes with per-item 🗑 buttons
+- **Recovery alerts** - Get notified when a crashed container comes back online
+- **Sectioned /help** - Browse commands by category (Containers, Server, Alerts, Setup)
+- **Back navigation** - All sub-views include ⬅️ Back buttons
+- **Smarter mute display** - Shows "until tomorrow 14:30" instead of just a time
+
+See the [changelog](CHANGELOG.md) for full details.
 
 ---
 
@@ -29,6 +46,7 @@ A Telegram bot for monitoring Docker containers and Unraid servers. Get real-tim
 - [Configuration](#configuration)
 - [Commands](#commands)
 - [Alert Examples](#alert-examples)
+- [User Guide](#user-guide)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -297,17 +315,17 @@ unraid:
 | Command | Description |
 |---------|-------------|
 | `/status` | Overview of all containers |
-| `/status <name>` | Details for specific container |
+| `/status <name>` | Details for a specific container |
 | `/resources` | CPU/memory usage for all containers |
 | `/resources <name>` | Detailed stats with thresholds |
 | `/logs <name> [n]` | Last n log lines (default 20) |
-| `/diagnose <name> [n]` | AI analysis of logs |
-| `/restart <name>` | Restart a container |
-| `/stop <name>` | Stop a container |
-| `/start <name>` | Start a container |
-| `/pull <name>` | Pull latest image and recreate |
+| `/diagnose <name>` | AI log analysis with 📋 More Details button |
+| `/restart <name>` | Restart with ✅ Confirm / ❌ Cancel buttons |
+| `/stop <name>` | Stop with confirmation buttons |
+| `/start <name>` | Start with confirmation buttons |
+| `/pull <name>` | Pull latest image and recreate (with confirmation) |
 
-**Tip:** Partial names work - `/status rad` matches `radarr`
+**Tip:** Partial names work — `/status rad` matches `radarr`
 
 ### Unraid Server Commands
 
@@ -329,7 +347,7 @@ unraid:
 | `/mute-array <duration>` | Mute array alerts |
 | `/unmute-array` | Unmute array alerts |
 | `/mutes` | Show all active mutes |
-| `/ignore` | Show recent errors to create ignore patterns |
+| `/ignore` | Select errors to ignore with ☐/☑ toggle buttons |
 | `/ignores` | List all ignore patterns |
 | `/cancel-kill` | Cancel pending memory pressure kill |
 
@@ -341,10 +359,10 @@ unraid:
 |---------|-------------|
 | `/setup` | Re-run the setup wizard (merges with existing config) |
 | `/cancel` | Exit the setup wizard mid-flow |
-| `/manage` | Dashboard with quick action buttons |
+| `/manage` | Interactive dashboard — status, resources, ignores, mutes |
 | `/health` | Bot version, uptime, and monitor status |
 | `/model` | Switch LLM provider and model at runtime |
-| `/help` | Show help message |
+| `/help` | Browse commands by category with navigation buttons |
 
 ### Natural Language Chat
 
@@ -354,9 +372,9 @@ Instead of commands, you can ask questions naturally:
 - "Why is my server slow?"
 - "Is anything crashing?"
 - "Show me radarr logs"
-- "Restart sonarr" (asks for confirmation)
+- "Restart sonarr" (shows confirmation buttons)
 
-Follow-up questions work too - say "restart it" after discussing a container.
+Follow-up questions work too — say "restart it" after discussing a container.
 
 **Note:** Requires at least one LLM provider to be configured (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OLLAMA_HOST`). Use `/model` to switch providers.
 
@@ -364,7 +382,7 @@ Follow-up questions work too - say "restart it" after discussing a container.
 
 ## Alert Examples
 
-All alerts include quick action buttons.
+All alerts include tappable inline buttons for quick actions — no need to type commands.
 
 ### Crash Alert
 ```
@@ -377,6 +395,16 @@ Uptime: 2h 34m
 [🔄 Restart] [📋 Logs] [🔍 Diagnose]
 [🔕 Mute 1h] [🔕 Mute 24h]
 ```
+
+### Recovery Alert
+
+Sent automatically when a previously crashed container starts successfully:
+
+```
+✅ radarr recovered and is running again.
+```
+
+Recovery alerts include a 5-minute cooldown to prevent spam if a container is flapping.
 
 ### Restart Loop Alert
 ```
@@ -418,6 +446,21 @@ Latest: Database connection failed: timeout
 
 ---
 
+## User Guide
+
+For a detailed walkthrough of all features, see the **[User Guide](docs/user-guide.md)**.
+
+It covers:
+- First-run setup and the interactive wizard
+- Understanding each alert type and what to do
+- Container management workflows (diagnose, restart, logs)
+- Using the `/manage` dashboard
+- Muting alerts and creating ignore patterns
+- AI features and switching LLM providers
+- Tips and best practices
+
+---
+
 ## Troubleshooting
 
 ### Bot not responding
@@ -456,7 +499,7 @@ This means the container can't access the Docker socket.
 - Check logs for API errors
 - Use `/model` to see which providers are configured and switch between them
 - If using Ollama, ensure the server is reachable and has models pulled
-- The bot works without AI - you'll get basic alerts, but `/diagnose` and natural language chat won't work
+- The bot works without AI — you'll get basic alerts, but `/diagnose` and natural language chat won't work
 
 ### Unraid monitoring not working
 
