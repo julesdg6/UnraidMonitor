@@ -6,6 +6,8 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message
 
+from src.utils.formatting import safe_reply
+
 if TYPE_CHECKING:
     from src.monitors.docker_events import DockerEventMonitor
     from src.monitors.log_watcher import LogWatcher
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Version is updated manually or via CI
-BOT_VERSION = "0.8.3"
+BOT_VERSION = "0.9.0"
 
 
 def _format_health_uptime(start_time: datetime) -> str:
@@ -119,6 +121,6 @@ def health_command(
                 for item in active_loops:
                     lines.append(f"  ⚠️ {item}")
 
-        await message.answer("\n".join(lines), parse_mode="Markdown")
+        await safe_reply(message, "\n".join(lines))
 
     return handler

@@ -253,12 +253,13 @@ async def test_unmute_command_not_muted(tmp_path):
 
 
 def test_mute_commands_in_help():
-    """Test that /mute, /mutes, /unmute are in help text."""
-    from src.bot.commands import HELP_TEXT
+    """Test that /mute, /mutes, /unmute are in help section content."""
+    from src.bot.commands import _HELP_SECTIONS
+    alerts_content = _HELP_SECTIONS["alerts"][2]
 
-    assert "/mute" in HELP_TEXT
-    assert "/mutes" in HELP_TEXT
-    assert "/unmute" in HELP_TEXT
+    assert "/mute" in alerts_content
+    assert "/mutes" in alerts_content
+    assert "/unmute" in alerts_content
 
 
 @pytest.mark.asyncio

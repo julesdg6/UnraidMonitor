@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message
+from aiogram.enums import ChatAction
 
 from src.alerts.mute_manager import parse_duration
-from src.utils.formatting import truncate_message
+from src.utils.formatting import truncate_message, safe_reply, format_mute_expiry
 
 if TYPE_CHECKING:
     from src.unraid.monitors.system_monitor import UnraidSystemMonitor
@@ -191,13 +192,15 @@ def server_command(
         text = (message.text or "").strip()
         detailed = "detailed" in text.lower()
 
+        await message.answer_chat_action(ChatAction.TYPING)
+
         if detailed:
             response = await format_server_detailed(system_monitor)
         else:
             response = await format_server_brief(system_monitor)
 
         if response:
-            await message.answer(response, parse_mode="Markdown")
+            await safe_reply(message, response)
         else:
             await message.answer("🖥️ Unraid server unavailable or not configured.")
 
@@ -234,13 +237,12 @@ def mute_server_command(
             return
 
         expiry = mute_manager.mute_server(duration)
-        time_str = expiry.strftime("%H:%M")
 
-        await message.answer(
-            f"🔇 *Muted all server alerts* until {time_str}\n\n"
+        await safe_reply(
+            message,
+            f"🔇 *Muted all server alerts* {format_mute_expiry(expiry)}\n\n"
             f"System, array, and UPS alerts suppressed.\n"
             f"Use `/unmute-server` to unmute early.",
-            parse_mode="Markdown",
         )
 
     return handler
@@ -253,10 +255,10 @@ def unmute_server_command(
 
     async def handler(message: Message) -> None:
         if mute_manager.unmute_server():
-            await message.answer(
+            await safe_reply(
+                message,
                 "🔔 *Unmuted all server alerts*\n\n"
                 "System, array, and UPS alerts are now enabled.",
-                parse_mode="Markdown",
             )
         else:
             await message.answer("Server alerts are not currently muted.")
@@ -294,13 +296,12 @@ def mute_array_command(
             return
 
         expiry = mute_manager.mute_array(duration)
-        time_str = expiry.strftime("%H:%M")
 
-        await message.answer(
-            f"🔇 *Muted array alerts* until {time_str}\n\n"
+        await safe_reply(
+            message,
+            f"🔇 *Muted array alerts* {format_mute_expiry(expiry)}\n\n"
             f"Disk and parity alerts suppressed.\n"
             f"Use `/unmute-array` to unmute early.",
-            parse_mode="Markdown",
         )
 
     return handler
@@ -313,10 +314,10 @@ def unmute_array_command(
 
     async def handler(message: Message) -> None:
         if mute_manager.unmute_array():
-            await message.answer(
+            await safe_reply(
+                message,
                 "🔔 *Unmuted array alerts*\n\n"
                 "Disk and parity alerts are now enabled.",
-                parse_mode="Markdown",
             )
         else:
             await message.answer("Array alerts are not currently muted.")
@@ -347,10 +348,11 @@ def disks_command(
     """Factory for /disks command handler."""
 
     async def handler(message: Message) -> None:
+        await message.answer_chat_action(ChatAction.TYPING)
         response = await format_disks(system_monitor)
 
         if response:
-            await message.answer(truncate_message(response), parse_mode="Markdown")
+            await safe_reply(message, truncate_message(response))
         else:
             await message.answer("💾 Disk status unavailable.")
 
@@ -423,6 +425,6 @@ def array_command(
             lines.append(f"\n*Issues:*")
             lines.extend(issues)
 
-        await message.answer("\n".join(lines), parse_mode="Markdown")
+        await safe_reply(message, "\n".join(lines))
 
     return handler

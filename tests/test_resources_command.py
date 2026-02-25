@@ -19,6 +19,7 @@ async def test_resources_command_summary():
     message = MagicMock()
     message.text = "/resources"
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 
@@ -97,6 +98,7 @@ async def test_resources_command_no_containers():
     message = MagicMock()
     message.text = "/resources"
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 
@@ -107,8 +109,7 @@ async def test_resources_command_no_containers():
 
 
 def test_resources_command_in_help():
-    """Test that /resources is documented in help text."""
-    from src.bot.commands import HELP_TEXT
-
-    assert "/resources" in HELP_TEXT
-    assert "CPU" in HELP_TEXT or "resource" in HELP_TEXT.lower()
+    """Test that /resources is documented in help section content."""
+    from src.bot.commands import _HELP_SECTIONS
+    containers_content = _HELP_SECTIONS["containers"][2]
+    assert "/resources" in containers_content

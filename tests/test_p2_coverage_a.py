@@ -1,5 +1,5 @@
 """Tests for P2 coverage gaps: container_control pull/recreate, AlertManagerProxy,
-ConfirmationManager.cancel, and AlertManager exit code / truncation behavior."""
+and AlertManager exit code / truncation behavior."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call

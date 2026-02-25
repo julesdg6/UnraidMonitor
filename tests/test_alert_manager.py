@@ -261,3 +261,24 @@ async def test_send_resource_alert_memory():
     assert "radarr" in text
     assert "Memory: 95.0%" in text
     assert "4 minutes" in text
+
+
+@pytest.mark.asyncio
+async def test_alert_manager_sends_recovery_alert():
+    """Test send_recovery_alert sends a brief recovery message."""
+    from src.alerts.manager import AlertManager
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+
+    manager = AlertManager(bot=bot, chat_id=12345)
+
+    await manager.send_recovery_alert("radarr")
+
+    bot.send_message.assert_called_once()
+    call_args = bot.send_message.call_args
+    assert call_args[1]["chat_id"] == 12345
+    text = call_args[1]["text"]
+    assert "radarr" in text
+    assert "recovered" in text
+    assert "✅" in text

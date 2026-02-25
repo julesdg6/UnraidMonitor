@@ -4,26 +4,33 @@ import logging
 import re
 from typing import Callable, Awaitable
 
-from aiogram.types import Message
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.enums import ChatAction
 
 from src.state import ContainerStateManager
 from src.services.diagnostic import DiagnosticService
+from src.utils.formatting import safe_reply, safe_edit
 
 logger = logging.getLogger(__name__)
 
-# Pattern to extract container name from crash alert
-CRASH_ALERT_PATTERN = re.compile(r"\*CONTAINER CRASHED:\*\s+([\w.\-]+)")
+# Patterns to extract container name from various alert types
+_ALERT_PATTERNS = [
+    re.compile(r"\*CONTAINER CRASHED:\*\s+([\w.\-]+)"),
+    re.compile(r"\*ERRORS IN:\s+([\w.\-]+)\*"),
+    re.compile(r"\*RESTART LOOP:\s+([\w.\-]+)\*"),
+    re.compile(r"HIGH .+ USAGE[:\s]+([\w.\-]+)", re.IGNORECASE),
+]
 
 
 def _extract_container_from_reply(reply_message: Message) -> str | None:
-    """Extract container name from a crash alert message."""
+    """Extract container name from any alert message."""
     if not reply_message or not reply_message.text:
         return None
 
-    match = CRASH_ALERT_PATTERN.search(reply_message.text)
-    if match:
-        return match.group(1)
+    for pattern in _ALERT_PATTERNS:
+        match = pattern.search(reply_message.text)
+        if match:
+            return match.group(1)
     return None
 
 
@@ -62,10 +69,10 @@ def diagnose_command(
 
         # If still no container name, show usage
         if not container_name:
-            await message.answer(
+            await safe_reply(
+                message,
                 "Usage: `/diagnose <container> [lines]`\n\n"
-                "Or reply to a crash alert with `/diagnose`",
-                parse_mode="Markdown",
+                "Or reply to an alert with `/diagnose`",
             )
             return
 
@@ -77,14 +84,12 @@ def diagnose_command(
 
         if len(matches) > 1:
             names = ", ".join(m.name for m in matches)
-            await message.answer(
-                f"Multiple matches found: {names}\n\n_Be more specific_",
-                parse_mode="Markdown",
-            )
+            await safe_reply(message, f"Multiple matches found: {names}\n\n_Be more specific_")
             return
 
         actual_name = matches[0].name
 
+        await message.answer_chat_action(ChatAction.TYPING)
         await message.answer(f"Analyzing {actual_name}...")
 
         # Gather context
@@ -100,21 +105,54 @@ def diagnose_command(
         context.brief_summary = analysis
         diagnostic_service.store_context(user_id, context)
 
+        # Build action buttons
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📋 More Details", callback_data=f"diag_details:{actual_name}"),
+                InlineKeyboardButton(text="🔄 Restart", callback_data=f"restart:{actual_name}"),
+            ],
+            [
+                InlineKeyboardButton(text="📋 Logs", callback_data=f"logs:{actual_name}:50"),
+            ],
+        ])
+
         response = f"""*Diagnosis: {actual_name}*
 
-{analysis}
+{analysis}"""
 
-_Want more details?_"""
+        await safe_reply(message, response, reply_markup=keyboard)
 
-        # Try Markdown first, fall back to plain text if parsing fails
-        try:
-            await message.answer(response, parse_mode="Markdown")
-        except TelegramBadRequest as e:
-            if "can't parse entities" in str(e):
-                # Claude's response contains characters that break Markdown
-                plain_response = f"Diagnosis: {actual_name}\n\n{analysis}\n\nWant more details?"
-                await message.answer(plain_response)
-            else:
-                raise
+    return handler
+
+
+def diag_details_callback(
+    diagnostic_service: DiagnosticService,
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for diagnosis details callback handler."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        if not callback.from_user:
+            await callback.answer("Could not identify user")
+            return
+
+        user_id = callback.from_user.id
+
+        if not diagnostic_service.has_pending(user_id):
+            await callback.answer("No pending diagnosis. Run /diagnose first.")
+            return
+
+        await callback.answer()
+
+        if callback.message:
+            await callback.message.answer_chat_action(ChatAction.TYPING)
+
+        details = await diagnostic_service.get_details(user_id)
+        if details:
+            response = f"*Detailed Analysis*\n\n{details}"
+            if callback.message:
+                await safe_reply(callback.message, response)
+        else:
+            if callback.message:
+                await callback.message.answer("Could not generate detailed analysis.")
 
     return handler

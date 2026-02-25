@@ -189,20 +189,18 @@ class TestStopCommand:
 
     @pytest.mark.asyncio
     async def test_stop_command_prompts_for_confirmation(self):
-        """The /stop handler should ask for confirmation instead of stopping immediately."""
+        """The /stop handler should show inline confirmation buttons."""
         from src.bot.control_commands import stop_command
-        from src.bot.confirmation import ConfirmationManager
         from src.state import ContainerStateManager
         from src.models import ContainerInfo
 
         state = ContainerStateManager()
         state.update(ContainerInfo("sonarr", "running", None, "linuxserver/sonarr", None))
 
-        confirmation = ConfirmationManager()
         controller = MagicMock()
         controller.is_protected.return_value = False
 
-        handler = stop_command(state, controller, confirmation)
+        handler = stop_command(state, controller)
 
         message = MagicMock()
         message.text = "/stop sonarr"
@@ -211,30 +209,27 @@ class TestStopCommand:
 
         await handler(message)
 
-        # Should ask for confirmation, not stop directly
+        # Should ask for confirmation with inline buttons
         message.answer.assert_called_once()
         response = message.answer.call_args[0][0]
         assert "Stop sonarr?" in response
-        assert "yes" in response.lower()
 
-        # Pending confirmation should be stored
-        pending = confirmation.get_pending(42)
-        assert pending is not None
-        assert pending.action == "stop"
-        assert pending.container_name == "sonarr"
+        reply_markup = message.answer.call_args.kwargs.get("reply_markup")
+        assert reply_markup is not None
+        buttons = reply_markup.inline_keyboard[0]
+        assert any("Confirm" in b.text for b in buttons)
+        assert any("Cancel" in b.text for b in buttons)
 
     @pytest.mark.asyncio
     async def test_stop_command_missing_container_name(self):
         """The /stop handler should show usage when no container is specified."""
         from src.bot.control_commands import stop_command
-        from src.bot.confirmation import ConfirmationManager
         from src.state import ContainerStateManager
 
         state = ContainerStateManager()
-        confirmation = ConfirmationManager()
         controller = MagicMock()
 
-        handler = stop_command(state, controller, confirmation)
+        handler = stop_command(state, controller)
 
         message = MagicMock()
         message.text = "/stop"
@@ -252,21 +247,19 @@ class TestStartCommand:
     """Tests for the start_command factory."""
 
     @pytest.mark.asyncio
-    async def test_start_command_starts_a_container(self):
-        """The /start handler should prompt for confirmation for the matched container."""
+    async def test_start_command_shows_confirmation_buttons(self):
+        """The /start handler should show inline confirmation buttons."""
         from src.bot.control_commands import start_command
-        from src.bot.confirmation import ConfirmationManager
         from src.state import ContainerStateManager
         from src.models import ContainerInfo
 
         state = ContainerStateManager()
         state.update(ContainerInfo("radarr", "exited", None, "linuxserver/radarr", None))
 
-        confirmation = ConfirmationManager()
         controller = MagicMock()
         controller.is_protected.return_value = False
 
-        handler = start_command(state, controller, confirmation)
+        handler = start_command(state, controller)
 
         message = MagicMock()
         message.text = "/start radarr"
@@ -275,36 +268,38 @@ class TestStartCommand:
 
         await handler(message)
 
-        # Should store pending confirmation for start
-        pending = confirmation.get_pending(99)
-        assert pending is not None
-        assert pending.action == "start"
-        assert pending.container_name == "radarr"
-
-        # Response should indicate start confirmation
+        # Response should show start confirmation with buttons
         response = message.answer.call_args[0][0]
         assert "Start radarr?" in response
 
-    @pytest.mark.asyncio
-    async def test_start_command_confirm_handler_executes_start(self):
-        """After confirmation, the start action should call controller.start."""
-        from src.bot.control_commands import create_confirm_handler
-        from src.bot.confirmation import ConfirmationManager
+        reply_markup = message.answer.call_args.kwargs.get("reply_markup")
+        assert reply_markup is not None
 
-        confirmation = ConfirmationManager()
-        confirmation.request(user_id=55, action="start", container_name="plex")
+    @pytest.mark.asyncio
+    async def test_start_command_confirm_callback_executes_start(self):
+        """Clicking confirm button should call controller.start."""
+        from src.bot.control_commands import create_ctrl_confirm_callback
+        from src.state import ContainerStateManager
+        from src.models import ContainerInfo
+
+        state = ContainerStateManager()
+        state.update(ContainerInfo("plex", "exited", None, "plexinc/plex", None))
 
         controller = MagicMock()
-        controller.start = AsyncMock(return_value="plex started")
+        controller.is_protected.return_value = False
+        controller.start = AsyncMock(return_value="✅ plex started")
 
-        handler = create_confirm_handler(controller, confirmation)
+        handler = create_ctrl_confirm_callback(state, controller)
 
-        message = MagicMock()
-        message.text = "yes"
-        message.from_user.id = 55
-        message.answer = AsyncMock()
+        callback = MagicMock()
+        callback.data = "ctrl_confirm:start:plex"
+        callback.from_user.id = 55
+        callback.answer = AsyncMock()
+        callback.message = MagicMock()
+        callback.message.edit_text = AsyncMock()
+        callback.message.answer_chat_action = AsyncMock()
 
-        await handler(message)
+        await handler(callback)
 
         controller.start.assert_called_once_with("plex")
 
@@ -314,20 +309,18 @@ class TestPullCommand:
 
     @pytest.mark.asyncio
     async def test_pull_command_prompts_for_confirmation(self):
-        """The /pull handler should ask for confirmation before pulling."""
+        """The /pull handler should show inline confirmation buttons."""
         from src.bot.control_commands import pull_command
-        from src.bot.confirmation import ConfirmationManager
         from src.state import ContainerStateManager
         from src.models import ContainerInfo
 
         state = ContainerStateManager()
         state.update(ContainerInfo("plex", "running", "healthy", "plexinc/plex", None))
 
-        confirmation = ConfirmationManager()
         controller = MagicMock()
         controller.is_protected.return_value = False
 
-        handler = pull_command(state, controller, confirmation)
+        handler = pull_command(state, controller)
 
         message = MagicMock()
         message.text = "/pull plex"
@@ -336,38 +329,41 @@ class TestPullCommand:
 
         await handler(message)
 
-        # Should prompt for confirmation
+        # Should prompt for confirmation with buttons
         message.answer.assert_called_once()
         response = message.answer.call_args[0][0]
         assert "Pull plex?" in response
-        assert "yes" in response.lower()
 
-        # Pending confirmation should be stored
-        pending = confirmation.get_pending(77)
-        assert pending is not None
-        assert pending.action == "pull"
-        assert pending.container_name == "plex"
+        reply_markup = message.answer.call_args.kwargs.get("reply_markup")
+        assert reply_markup is not None
+        buttons = reply_markup.inline_keyboard[0]
+        assert any("Confirm" in b.text for b in buttons)
 
     @pytest.mark.asyncio
-    async def test_pull_command_confirm_handler_executes_pull(self):
-        """After confirmation, the pull action should call controller.pull_and_recreate."""
-        from src.bot.control_commands import create_confirm_handler
-        from src.bot.confirmation import ConfirmationManager
+    async def test_pull_command_confirm_callback_executes_pull(self):
+        """Clicking confirm button should call controller.pull_and_recreate."""
+        from src.bot.control_commands import create_ctrl_confirm_callback
+        from src.state import ContainerStateManager
+        from src.models import ContainerInfo
 
-        confirmation = ConfirmationManager()
-        confirmation.request(user_id=77, action="pull", container_name="plex")
+        state = ContainerStateManager()
+        state.update(ContainerInfo("plex", "running", None, "plexinc/plex", None))
 
         controller = MagicMock()
-        controller.pull_and_recreate = AsyncMock(return_value="plex updated")
+        controller.is_protected.return_value = False
+        controller.pull_and_recreate = AsyncMock(return_value="✅ plex updated")
 
-        handler = create_confirm_handler(controller, confirmation)
+        handler = create_ctrl_confirm_callback(state, controller)
 
-        message = MagicMock()
-        message.text = "yes"
-        message.from_user.id = 77
-        message.answer = AsyncMock()
+        callback = MagicMock()
+        callback.data = "ctrl_confirm:pull:plex"
+        callback.from_user.id = 77
+        callback.answer = AsyncMock()
+        callback.message = MagicMock()
+        callback.message.edit_text = AsyncMock()
+        callback.message.answer_chat_action = AsyncMock()
 
-        await handler(message)
+        await handler(callback)
 
         controller.pull_and_recreate.assert_called_once_with("plex")
 

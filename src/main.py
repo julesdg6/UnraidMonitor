@@ -544,7 +544,7 @@ async def start_monitoring(
         )
 
     # Register commands with docker client for /logs
-    confirmation, diagnostic_service = register_commands(
+    controller, diagnostic_service = register_commands(
         dp,
         state,
         docker_client=monitor.shared_client,
@@ -565,11 +565,8 @@ async def start_monitoring(
     )
 
     # Set controller on NL executor after register_commands creates it
-    if nl_processor and confirmation:
-        # Create controller for NL executor
-        from src.services.container_control import ContainerController
-        nl_controller = ContainerController(monitor.shared_client, config.protected_containers)
-        nl_processor._executor._controller = nl_controller
+    if nl_processor and controller:
+        nl_processor._executor._controller = controller
 
     # Store Unraid references for shutdown
     bg.unraid_client = unraid_client

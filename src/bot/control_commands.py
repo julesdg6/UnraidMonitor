@@ -1,12 +1,12 @@
 import logging
 from typing import Callable, Awaitable
 
-from aiogram.types import Message
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.enums import ChatAction
 
 from src.state import ContainerStateManager
-from src.bot.confirmation import ConfirmationManager
 from src.services.container_control import ContainerController
+from src.utils.formatting import safe_reply, safe_edit, validate_container_name
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,8 @@ ACTION_EMOJI = {
     "start": "▶️",
     "pull": "⬇️",
 }
+
+VALID_ACTIONS = {"restart", "stop", "start", "pull"}
 
 
 def _find_container(state: ContainerStateManager, query: str) -> tuple[str | None, str | None]:
@@ -33,22 +35,28 @@ def _find_container(state: ContainerStateManager, query: str) -> tuple[str | Non
     return matches[0].name, None
 
 
-def _format_confirmation_message(action: str, container_name: str, status: str, timeout_seconds: int = 60) -> str:
-    """Format the confirmation request message."""
+def _build_confirmation(action: str, container_name: str, status: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Build confirmation message and inline keyboard."""
     emoji = ACTION_EMOJI.get(action, "⚠️")
 
-    return f"""{emoji} *{action.capitalize()} {container_name}?*
+    text = f"""{emoji} *{action.capitalize()} {container_name}?*
 
-Current status: {status}
+Current status: {status}"""
 
-Reply 'yes' to confirm (expires in {timeout_seconds}s)"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Confirm", callback_data=f"ctrl_confirm:{action}:{container_name}"),
+            InlineKeyboardButton(text="❌ Cancel", callback_data="ctrl_cancel"),
+        ]
+    ])
+
+    return text, keyboard
 
 
 def _control_command(
     action: str,
     state: ContainerStateManager,
     controller: ContainerController,
-    confirmation: ConfirmationManager,
 ) -> Callable[[Message], Awaitable[None]]:
     """Generic factory for container control command handlers."""
     async def handler(message: Message) -> None:
@@ -56,20 +64,19 @@ def _control_command(
         parts = text.strip().split()
 
         if len(parts) < 2:
-            await message.answer(f"Usage: /{action} <container>\n\nExample: /{action} radarr")
+            await safe_reply(
+                message,
+                f"Usage: `/{action} <container>`\n\n"
+                f"Example: `/{action} radarr`\n"
+                f"_Partial names work: /{action} rad → radarr_",
+            )
             return
 
         query = parts[1]
         container_name, error = _find_container(state, query)
 
         if error:
-            try:
-                await message.answer(error, parse_mode="Markdown")
-            except TelegramBadRequest as e:
-                if "can't parse entities" in str(e):
-                    await message.answer(error.replace("*", "").replace("`", ""))
-                else:
-                    raise
+            await safe_reply(message, error)
             return
 
         if controller.is_protected(container_name):
@@ -79,19 +86,8 @@ def _control_command(
         container_info = state.get(container_name)
         status = container_info.status if container_info else "unknown"
 
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
-        confirmation.request(user_id, action=action, container_name=container_name)
-
-        confirm_msg = _format_confirmation_message(action, container_name, status)
-        try:
-            await message.answer(confirm_msg, parse_mode="Markdown")
-        except TelegramBadRequest as e:
-            if "can't parse entities" in str(e):
-                await message.answer(confirm_msg.replace("*", "").replace("`", ""))
-            else:
-                raise
+        confirm_msg, keyboard = _build_confirmation(action, container_name, status)
+        await safe_reply(message, confirm_msg, reply_markup=keyboard)
 
     return handler
 
@@ -99,59 +95,76 @@ def _control_command(
 def restart_command(
     state: ContainerStateManager,
     controller: ContainerController,
-    confirmation: ConfirmationManager,
 ) -> Callable[[Message], Awaitable[None]]:
     """Factory for /restart command handler."""
-    return _control_command("restart", state, controller, confirmation)
+    return _control_command("restart", state, controller)
 
 
 def stop_command(
     state: ContainerStateManager,
     controller: ContainerController,
-    confirmation: ConfirmationManager,
 ) -> Callable[[Message], Awaitable[None]]:
     """Factory for /stop command handler."""
-    return _control_command("stop", state, controller, confirmation)
+    return _control_command("stop", state, controller)
 
 
 def start_command(
     state: ContainerStateManager,
     controller: ContainerController,
-    confirmation: ConfirmationManager,
 ) -> Callable[[Message], Awaitable[None]]:
     """Factory for /start command handler."""
-    return _control_command("start", state, controller, confirmation)
+    return _control_command("start", state, controller)
 
 
 def pull_command(
     state: ContainerStateManager,
     controller: ContainerController,
-    confirmation: ConfirmationManager,
 ) -> Callable[[Message], Awaitable[None]]:
     """Factory for /pull command handler."""
-    return _control_command("pull", state, controller, confirmation)
+    return _control_command("pull", state, controller)
 
 
-def create_confirm_handler(
+def create_ctrl_confirm_callback(
+    state: ContainerStateManager,
     controller: ContainerController,
-    confirmation: ConfirmationManager,
-) -> Callable[[Message], Awaitable[None]]:
-    """Factory for confirmation handler (responds to 'yes')."""
-    async def handler(message: Message) -> None:
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
-        pending = confirmation.confirm(user_id)
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for control confirmation callback handler."""
 
-        if pending is None:
-            await message.answer("❌ No pending action. Use /restart, /stop, /start, or /pull first.")
+    async def handler(callback: CallbackQuery) -> None:
+        data = callback.data or ""
+        # Format: ctrl_confirm:{action}:{container_name}
+        parts = data.split(":", 2)
+        if len(parts) < 3:
+            await callback.answer("Invalid callback data")
             return
 
-        action = pending.action
-        container_name = pending.container_name
+        action = parts[1]
+        container_name = parts[2]
 
-        await message.answer(f"🔄 Executing {action} on {container_name}...")
+        if action not in VALID_ACTIONS:
+            await callback.answer(f"Unknown action: {action}")
+            return
 
+        if not validate_container_name(container_name):
+            await callback.answer("Invalid container name")
+            return
+
+        if controller.is_protected(container_name):
+            await callback.answer(f"🔒 {container_name} is protected")
+            return
+
+        await callback.answer()
+
+        # Update the message to show we're executing
+        emoji = ACTION_EMOJI.get(action, "⚠️")
+        if callback.message:
+            await safe_edit(
+                callback.message,
+                f"{emoji} Executing {action} on *{container_name}*...",
+            )
+            await callback.message.answer_chat_action(ChatAction.TYPING)
+
+        # Execute the action
         if action == "restart":
             result = await controller.restart(container_name)
         elif action == "stop":
@@ -163,6 +176,19 @@ def create_confirm_handler(
         else:
             result = f"❌ Unknown action: {action}"
 
-        await message.answer(result)
+        # Update with result
+        if callback.message:
+            await safe_edit(callback.message, result)
+
+    return handler
+
+
+def create_ctrl_cancel_callback() -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for control cancel callback handler."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        await callback.answer("Cancelled")
+        if callback.message:
+            await safe_edit(callback.message, "Action cancelled.")
 
     return handler

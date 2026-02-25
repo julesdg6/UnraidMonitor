@@ -23,16 +23,19 @@ class CrashTracker:
 
     Records all crashes (regardless of mute/rate-limit status) and sends
     an escalated "restart loop" alert when a container exceeds the crash
-    threshold within the time window.
+    threshold within the time window.  Also tracks recovery — when a
+    previously-crashed container starts successfully.
     """
 
     LOOP_THRESHOLD = 5  # Crashes in window to trigger escalation
     LOOP_WINDOW_SECONDS = 600  # 10-minute window
     ESCALATION_COOLDOWN_SECONDS = 600  # Don't re-escalate within 10 min
+    RECOVERY_COOLDOWN_SECONDS = 300  # Don't spam recovery alerts
 
     def __init__(self) -> None:
         self._crashes: dict[str, list[datetime]] = {}
         self._last_escalation: dict[str, datetime] = {}
+        self._last_recovery_alert: dict[str, datetime] = {}
 
     def record_crash(self, container_name: str) -> None:
         """Record a crash event (called for ALL non-zero exit crashes)."""
@@ -75,6 +78,29 @@ class CrashTracker:
         """Get recent crash count for a container."""
         cutoff = datetime.now() - timedelta(seconds=self.LOOP_WINDOW_SECONDS)
         return len([t for t in self._crashes.get(container_name, []) if t > cutoff])
+
+    def should_send_recovery(self, container_name: str) -> bool:
+        """Check if a recovery alert should be sent for this container.
+
+        Returns True if the container had recent crashes and hasn't had
+        a recovery alert sent within the cooldown period.
+        """
+        # Only send recovery if the container actually crashed recently
+        if self.get_crash_count(container_name) == 0:
+            return False
+
+        now = datetime.now()
+        last = self._last_recovery_alert.get(container_name)
+        if last and (now - last).total_seconds() < self.RECOVERY_COOLDOWN_SECONDS:
+            return False
+
+        return True
+
+    def record_recovery_alert(self, container_name: str) -> None:
+        """Record that a recovery alert was sent and clear crash history."""
+        self._last_recovery_alert[container_name] = datetime.now()
+        # Clear crash history since the container recovered
+        self._crashes.pop(container_name, None)
 
 
 def parse_container(container: Container) -> ContainerInfo:
@@ -259,7 +285,10 @@ class DockerEventMonitor:
                 except asyncio.TimeoutError:
                     continue
 
-                await self._handle_crash_event(event)
+                if event.get("_alert_type") == "recovery":
+                    await self._handle_recovery_event(event)
+                else:
+                    await self._handle_crash_event(event)
             except Exception as e:
                 logger.error(f"Error processing alert: {e}")
 
@@ -296,6 +325,18 @@ class DockerEventMonitor:
 
                 if action in ("start", "die", "health_status"):
                     self._handle_event(event)
+
+                # Queue start events for recovery alert processing (thread-safe)
+                if action == "start" and self.alert_manager:
+                    try:
+                        self._loop.call_soon_threadsafe(
+                            self._pending_alerts.put_nowait,
+                            {**event, "_alert_type": "recovery"},
+                        )
+                    except asyncio.QueueFull:
+                        logger.debug("Alert queue full, dropping recovery event")
+                    except Exception as e:
+                        logger.error(f"Failed to queue recovery event: {e}")
 
                 # Queue die events for crash alert processing (thread-safe)
                 if action == "die" and self.alert_manager:
@@ -402,6 +443,24 @@ class DockerEventMonitor:
             image=self._get_container_image(container_name),
             uptime_seconds=self._get_container_uptime(container_name),
         )
+
+    async def _handle_recovery_event(self, event: dict[str, Any]) -> None:
+        """Handle a container start event and send recovery alert if it previously crashed."""
+        if not self.alert_manager:
+            return
+
+        container_name = event.get("Actor", {}).get("Attributes", {}).get("name", "")
+
+        if container_name in self.ignored_containers:
+            return
+
+        if not self._crash_tracker.should_send_recovery(container_name):
+            return
+
+        self._crash_tracker.record_recovery_alert(container_name)
+        logger.info(f"Container {container_name} recovered after crash")
+
+        await self.alert_manager.send_recovery_alert(container_name)
 
     def _get_container_image(self, container_name: str) -> str:
         """Get image name for a container from state manager."""

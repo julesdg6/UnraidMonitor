@@ -1,5 +1,5 @@
 """
-Phase 3 integration tests - verify control commands work end-to-end.
+Phase 3 integration tests - verify control commands work end-to-end with inline buttons.
 """
 import pytest
 from unittest.mock import MagicMock, AsyncMock
@@ -7,11 +7,10 @@ from unittest.mock import MagicMock, AsyncMock
 
 @pytest.mark.asyncio
 async def test_restart_with_confirmation_flow():
-    """Test: Full restart flow with confirmation."""
+    """Test: Full restart flow with inline button confirmation."""
     from src.state import ContainerStateManager
     from src.models import ContainerInfo
-    from src.bot.control_commands import restart_command, create_confirm_handler
-    from src.bot.confirmation import ConfirmationManager
+    from src.bot.control_commands import restart_command, create_ctrl_confirm_callback
     from src.services.container_control import ContainerController
 
     # Setup
@@ -23,10 +22,9 @@ async def test_restart_with_confirmation_flow():
     mock_client.containers.get.return_value = mock_container
 
     controller = ContainerController(mock_client, protected_containers=[])
-    confirmation = ConfirmationManager()
 
     # Step 1: User sends /restart radarr
-    restart_handler = restart_command(state, controller, confirmation)
+    restart_handler = restart_command(state, controller)
     message1 = MagicMock()
     message1.text = "/restart radarr"
     message1.from_user.id = 123
@@ -34,18 +32,26 @@ async def test_restart_with_confirmation_flow():
 
     await restart_handler(message1)
 
-    # Should ask for confirmation
-    assert "Restart radarr?" in message1.answer.call_args[0][0]
-    assert confirmation.get_pending(123) is not None
+    # Should show confirmation with inline buttons
+    response = message1.answer.call_args[0][0]
+    assert "Restart radarr?" in response
 
-    # Step 2: User sends 'yes'
-    confirm_handler = create_confirm_handler(controller, confirmation)
-    message2 = MagicMock()
-    message2.text = "yes"
-    message2.from_user.id = 123
-    message2.answer = AsyncMock()
+    reply_markup = message1.answer.call_args.kwargs.get("reply_markup")
+    assert reply_markup is not None
+    buttons = reply_markup.inline_keyboard[0]
+    assert any("Confirm" in b.text for b in buttons)
 
-    await confirm_handler(message2)
+    # Step 2: User clicks Confirm button
+    confirm_handler = create_ctrl_confirm_callback(state, controller)
+    callback = MagicMock()
+    callback.data = "ctrl_confirm:restart:radarr"
+    callback.from_user.id = 123
+    callback.answer = AsyncMock()
+    callback.message = MagicMock()
+    callback.message.edit_text = AsyncMock()
+    callback.message.answer_chat_action = AsyncMock()
+
+    await confirm_handler(callback)
 
     # Should have restarted
     mock_container.restart.assert_called_once()
@@ -57,7 +63,6 @@ async def test_protected_container_rejected():
     from src.state import ContainerStateManager
     from src.models import ContainerInfo
     from src.bot.control_commands import restart_command
-    from src.bot.confirmation import ConfirmationManager
     from src.services.container_control import ContainerController
 
     state = ContainerStateManager()
@@ -65,9 +70,8 @@ async def test_protected_container_rejected():
 
     mock_client = MagicMock()
     controller = ContainerController(mock_client, protected_containers=["mariadb"])
-    confirmation = ConfirmationManager()
 
-    handler = restart_command(state, controller, confirmation)
+    handler = restart_command(state, controller)
 
     message = MagicMock()
     message.text = "/restart mariadb"
@@ -79,38 +83,27 @@ async def test_protected_container_rejected():
     # Should reject
     response = message.answer.call_args[0][0]
     assert "protected" in response.lower()
-    assert confirmation.get_pending(123) is None
 
 
 @pytest.mark.asyncio
-async def test_confirmation_timeout():
-    """Test: Expired confirmation is rejected."""
-    from datetime import datetime, timedelta
-    from src.bot.control_commands import create_confirm_handler
-    from src.bot.confirmation import ConfirmationManager, PendingConfirmation
+async def test_confirm_callback_rejects_protected():
+    """Test: Protected containers rejected at callback level too."""
+    from src.state import ContainerStateManager
+    from src.bot.control_commands import create_ctrl_confirm_callback
     from src.services.container_control import ContainerController
 
+    state = ContainerStateManager()
     mock_client = MagicMock()
-    controller = ContainerController(mock_client, protected_containers=[])
-    confirmation = ConfirmationManager()
+    controller = ContainerController(mock_client, protected_containers=["radarr"])
 
-    # Create an expired confirmation
-    confirmation._pending[123] = PendingConfirmation(
-        action="restart",
-        container_name="radarr",
-        expires_at=datetime.now() - timedelta(seconds=1),
-    )
+    handler = create_ctrl_confirm_callback(state, controller)
 
-    handler = create_confirm_handler(controller, confirmation)
+    callback = MagicMock()
+    callback.data = "ctrl_confirm:restart:radarr"
+    callback.from_user.id = 123
+    callback.answer = AsyncMock()
 
-    message = MagicMock()
-    message.text = "yes"
-    message.from_user.id = 123
-    message.answer = AsyncMock()
+    await handler(callback)
 
-    await handler(message)
-
-    # Should reject - no pending
-    response = message.answer.call_args[0][0]
-    assert "No pending" in response
-    mock_client.containers.get.assert_not_called()
+    callback.answer.assert_called_once()
+    assert "protected" in callback.answer.call_args[0][0].lower()

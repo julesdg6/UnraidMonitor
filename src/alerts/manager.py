@@ -229,6 +229,21 @@ Exceeded for: {duration_str}
         except Exception as e:
             logger.error(f"Failed to send resource alert: {e}")
 
+    async def send_recovery_alert(self, container_name: str) -> None:
+        """Send a brief recovery notification when a crashed container starts."""
+        text = f"✅ *{container_name}* recovered and is running again."
+
+        try:
+            await send_with_retry(
+                self.bot.send_message,
+                chat_id=self.chat_id,
+                text=text,
+                parse_mode="Markdown",
+            )
+            logger.info(f"Sent recovery alert for {container_name}")
+        except Exception as e:
+            logger.error(f"Failed to send recovery alert: {e}")
+
     @staticmethod
     def _format_duration(seconds: int) -> str:
         """Format duration in human-readable form."""

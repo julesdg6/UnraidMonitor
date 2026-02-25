@@ -3,7 +3,8 @@ from unittest.mock import MagicMock, AsyncMock
 
 
 @pytest.mark.asyncio
-async def test_help_command_returns_help_text():
+async def test_help_command_shows_category_buttons():
+    """Test that /help shows category selection buttons."""
     from src.bot.commands import help_command
     from src.state import ContainerStateManager
 
@@ -16,9 +17,91 @@ async def test_help_command_returns_help_text():
     await handler(message)
 
     message.answer.assert_called_once()
-    call_args = message.answer.call_args[0][0]
-    assert "/status" in call_args
-    assert "Commands" in call_args
+    call_args = message.answer.call_args
+    text = call_args[0][0]
+    assert "Commands" in text
+    assert "category" in text.lower()
+
+    # Should have inline keyboard with section buttons
+    reply_markup = call_args.kwargs.get("reply_markup") or call_args[1].get("reply_markup")
+    assert reply_markup is not None
+    all_buttons = [b for row in reply_markup.inline_keyboard for b in row]
+    button_texts = [b.text for b in all_buttons]
+    assert any("Containers" in t for t in button_texts)
+    assert any("Server" in t for t in button_texts)
+    assert any("Alerts" in t for t in button_texts)
+    assert any("Setup" in t for t in button_texts)
+
+
+@pytest.mark.asyncio
+async def test_help_section_callback():
+    """Test clicking a help section button shows section content."""
+    from src.bot.commands import help_section_callback
+
+    handler = help_section_callback()
+
+    callback = MagicMock()
+    callback.data = "help:containers"
+    callback.answer = AsyncMock()
+    callback.message = MagicMock()
+    callback.message.edit_text = AsyncMock()
+
+    await handler(callback)
+
+    callback.answer.assert_called_once()
+    call_args = callback.message.edit_text.call_args
+    text = call_args[0][0]
+    assert "Containers" in text
+    assert "/status" in text
+    assert "/logs" in text
+
+    # Should have Back button
+    reply_markup = call_args.kwargs.get("reply_markup") or call_args[1].get("reply_markup")
+    assert reply_markup is not None
+    all_buttons = [b for row in reply_markup.inline_keyboard for b in row]
+    assert any("Back" in b.text for b in all_buttons)
+
+
+@pytest.mark.asyncio
+async def test_help_back_callback():
+    """Test clicking Back returns to category overview."""
+    from src.bot.commands import help_back_callback
+
+    handler = help_back_callback()
+
+    callback = MagicMock()
+    callback.answer = AsyncMock()
+    callback.message = MagicMock()
+    callback.message.edit_text = AsyncMock()
+
+    await handler(callback)
+
+    callback.answer.assert_called_once()
+    call_args = callback.message.edit_text.call_args
+    text = call_args[0][0]
+    assert "Commands" in text
+
+    # Should have category buttons again
+    reply_markup = call_args.kwargs.get("reply_markup") or call_args[1].get("reply_markup")
+    assert reply_markup is not None
+    all_buttons = [b for row in reply_markup.inline_keyboard for b in row]
+    assert len(all_buttons) == 4  # 4 sections
+
+
+@pytest.mark.asyncio
+async def test_help_section_unknown():
+    """Test unknown section returns error."""
+    from src.bot.commands import help_section_callback
+
+    handler = help_section_callback()
+
+    callback = MagicMock()
+    callback.data = "help:nonexistent"
+    callback.answer = AsyncMock()
+
+    await handler(callback)
+
+    callback.answer.assert_called_once_with("Unknown section")
 
 
 @pytest.mark.asyncio
@@ -361,7 +444,8 @@ async def test_logs_command_no_arguments():
 
     message.answer.assert_called_once()
     response = message.answer.call_args[0][0]
-    assert "usage" in response.lower()
+    assert "Usage" in response or "usage" in response.lower()
+    assert "Partial names" in response or "/logs radarr" in response
 
 
 @pytest.mark.asyncio

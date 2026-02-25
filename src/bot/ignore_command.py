@@ -2,9 +2,9 @@ import logging
 import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from src.utils.formatting import extract_container_from_alert, truncate_message
+from src.utils.formatting import extract_container_from_alert, truncate_message, safe_edit
 
 if TYPE_CHECKING:
     from src.alerts.recent_errors import RecentErrorsBuffer
@@ -21,7 +21,8 @@ class IgnoreSelectionState:
     """Shared state for ignore selections across handlers."""
 
     def __init__(self):
-        self.pending_selections: dict[int, tuple[float, str, list[str]]] = {}
+        # user_id -> (timestamp, container, errors, selected_indices)
+        self.pending_selections: dict[int, tuple[float, str, list[str], set[int]]] = {}
 
     def has_pending(self, user_id: int) -> bool:
         entry = self.pending_selections.get(user_id)
@@ -41,9 +42,44 @@ class IgnoreSelectionState:
             return None
         return entry[1], entry[2]
 
+    def get_selected(self, user_id: int) -> set[int]:
+        """Get the set of selected indices for this user."""
+        entry = self.pending_selections.get(user_id)
+        if entry is None:
+            return set()
+        if time.monotonic() - entry[0] > _SELECTION_TTL:
+            del self.pending_selections[user_id]
+            return set()
+        return entry[3]
+
+    def toggle_selection(self, user_id: int, index: int) -> None:
+        """Toggle a single index in the user's selection."""
+        entry = self.pending_selections.get(user_id)
+        if entry is None:
+            return
+        selected = entry[3]
+        if index in selected:
+            selected.discard(index)
+        else:
+            selected.add(index)
+
+    def select_all(self, user_id: int) -> None:
+        """Select all or deselect all (toggles between all-selected and none)."""
+        entry = self.pending_selections.get(user_id)
+        if entry is None:
+            return
+        errors = entry[2]
+        selected = entry[3]
+        all_indices = set(range(len(errors)))
+        if selected == all_indices:
+            selected.clear()
+        else:
+            selected.clear()
+            selected.update(all_indices)
+
     def set_pending(self, user_id: int, container: str, errors: list[str]) -> None:
         self._cleanup()
-        self.pending_selections[user_id] = (time.monotonic(), container, errors)
+        self.pending_selections[user_id] = (time.monotonic(), container, errors, set())
 
     def clear_pending(self, user_id: int) -> None:
         self.pending_selections.pop(user_id, None)
@@ -54,6 +90,41 @@ class IgnoreSelectionState:
         expired = [uid for uid, entry in self.pending_selections.items() if now - entry[0] > _SELECTION_TTL]
         for uid in expired:
             del self.pending_selections[uid]
+
+
+def _build_ignore_keyboard(errors: list[str], selected: set[int]) -> InlineKeyboardMarkup:
+    """Build inline keyboard with toggle buttons for error selection.
+
+    Toggle buttons shown in rows of 4, plus Select All, Done, and Cancel.
+    """
+    buttons: list[list[InlineKeyboardButton]] = []
+
+    # Toggle buttons in rows of 4
+    row: list[InlineKeyboardButton] = []
+    for i, _error in enumerate(errors):
+        check = "\u2611" if i in selected else "\u2610"  # ☑ or ☐
+        row.append(InlineKeyboardButton(
+            text=f"{check} {i + 1}",
+            callback_data=f"ign_toggle:{i}",
+        ))
+        if len(row) == 4:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    # Select All / Deselect All
+    all_selected = selected == set(range(len(errors)))
+    all_label = "Deselect All" if all_selected else "Select All"
+    buttons.append([InlineKeyboardButton(text=all_label, callback_data="ign_all")])
+
+    # Done + Cancel row
+    buttons.append([
+        InlineKeyboardButton(text="\u2705 Ignore Selected", callback_data="ign_done"),
+        InlineKeyboardButton(text="\u274c Cancel", callback_data="ign_cancel"),
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def ignore_command(
@@ -78,7 +149,7 @@ def ignore_command(
         # Extract container from alert
         container = extract_container_from_alert(reply_text)
         if not container:
-            await message.answer("Can only ignore errors from error alerts. Reply to a ⚠️ ERRORS IN message.")
+            await message.answer("Can only ignore errors from error alerts. Reply to a \u26a0\ufe0f ERRORS IN message.")
             return
 
         # Get recent errors for this container
@@ -89,75 +160,149 @@ def ignore_command(
             return
 
         # Build numbered list
-        lines = [f"🔇 *Recent errors in {container}* (last 15 min):\n"]
+        lines = [f"\U0001f507 *Recent errors in {container}* (last 15 min):\n"]
         for i, error in enumerate(recent_errors, 1):
             # Truncate long errors
             display = error[:80] + "..." if len(error) > 80 else error
             lines.append(f"`{i}.` {display}")
 
-        lines.append("")
-        lines.append('_Reply with numbers to ignore (e.g., "1,3" or "all")_')
-
-        # Store pending selection
+        # Store pending selection (with empty selected set)
         selection_state.set_pending(user_id, container, recent_errors)
 
-        await message.answer("\n".join(lines), parse_mode="Markdown")
+        keyboard = _build_ignore_keyboard(recent_errors, set())
+
+        await message.answer(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
 
     return handler
 
 
-def ignore_selection_handler(
-    ignore_manager: "IgnoreManager",
+def ignore_toggle_callback(
     selection_state: "IgnoreSelectionState",
-    pattern_analyzer: "PatternAnalyzer | None" = None,
-) -> Callable[[Message], Awaitable[None]]:
-    """Factory for ignore selection follow-up handler."""
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for ignore toggle button callback (ign_toggle:{index})."""
 
-    async def handler(message: Message) -> None:
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
+    async def handler(callback: CallbackQuery) -> None:
+        user_id = callback.from_user.id if callback.from_user else 0
 
         if not selection_state.has_pending(user_id):
-            # No pending selection - don't respond
+            await callback.answer("Selection expired. Use /ignore again.")
+            return
+
+        data = callback.data or ""
+        parts = data.split(":", 1)
+        if len(parts) < 2:
+            await callback.answer("Invalid callback data")
+            return
+
+        try:
+            index = int(parts[1])
+        except ValueError:
+            await callback.answer("Invalid callback data")
             return
 
         pending = selection_state.get_pending(user_id)
         if not pending:
+            await callback.answer("Selection expired.")
+            return
+
+        _container, errors = pending
+
+        if index < 0 or index >= len(errors):
+            await callback.answer("Invalid selection")
+            return
+
+        selection_state.toggle_selection(user_id, index)
+        selected = selection_state.get_selected(user_id)
+
+        # Update keyboard only (don't change message text)
+        keyboard = _build_ignore_keyboard(errors, selected)
+        await callback.answer()
+        if callback.message:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=keyboard)
+            except Exception:
+                pass  # Ignore if message hasn't changed
+
+    return handler
+
+
+def ignore_all_callback(
+    selection_state: "IgnoreSelectionState",
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for ignore select-all button callback (ign_all)."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        user_id = callback.from_user.id if callback.from_user else 0
+
+        if not selection_state.has_pending(user_id):
+            await callback.answer("Selection expired. Use /ignore again.")
+            return
+
+        pending = selection_state.get_pending(user_id)
+        if not pending:
+            await callback.answer("Selection expired.")
+            return
+
+        _container, errors = pending
+
+        selection_state.select_all(user_id)
+        selected = selection_state.get_selected(user_id)
+
+        keyboard = _build_ignore_keyboard(errors, selected)
+        await callback.answer()
+        if callback.message:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=keyboard)
+            except Exception:
+                pass
+
+    return handler
+
+
+def ignore_done_callback(
+    ignore_manager: "IgnoreManager",
+    selection_state: "IgnoreSelectionState",
+    pattern_analyzer: "PatternAnalyzer | None" = None,
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for ignore done button callback (ign_done)."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        user_id = callback.from_user.id if callback.from_user else 0
+
+        if not selection_state.has_pending(user_id):
+            await callback.answer("Selection expired. Use /ignore again.")
+            return
+
+        pending = selection_state.get_pending(user_id)
+        if not pending:
+            await callback.answer("Selection expired.")
             return
 
         container, errors = pending
-        text = (message.text or "").strip().lower()
+        selected = selection_state.get_selected(user_id)
 
-        # Parse the selection first, before clearing pending state
-        if text == "all":
-            indices = list(range(len(errors)))
-        else:
-            # Parse comma-separated numbers
-            try:
-                indices = [int(x.strip()) - 1 for x in text.split(",")]
-                # Validate indices
-                if any(i < 0 or i >= len(errors) for i in indices):
-                    await message.answer("Invalid selection. Numbers must be from the list.")
-                    return
-            except ValueError:
-                await message.answer("Invalid input. Use numbers like '1,3' or 'all'.")
-                return
+        if not selected:
+            await callback.answer("No errors selected. Toggle some first.")
+            return
 
-        # Only clear pending selection after successful parse
+        # Clear pending state
         selection_state.clear_pending(user_id)
 
-        # Process each selected error
-        added = []
-        for i in indices:
+        # Process each selected error (same logic as old ignore_selection_handler)
+        added: list[tuple[str, str]] = []
+        for i in sorted(selected):
             error = errors[i]
 
-            # Try to analyze with Haiku
+            # Try to analyze with pattern analyzer
             if pattern_analyzer is not None:
                 result = await pattern_analyzer.analyze_error(
                     container=container,
                     error_message=error,
-                    recent_logs=[],  # Could pass more context here
+                    recent_logs=[],
                 )
 
                 if result:
@@ -170,7 +315,6 @@ def ignore_selection_handler(
                     if success:
                         added.append((result["pattern"], result["explanation"]))
                     elif msg != "Pattern already exists":
-                        # Log validation failures
                         logger.warning(f"Failed to add pattern for {container}: {msg}")
                     continue
 
@@ -179,15 +323,34 @@ def ignore_selection_handler(
                 added.append((error, ""))
 
         if added:
-            lines = [f"✅ *Ignored for {container}:*\n"]
+            lines = [f"\u2705 *Ignored for {container}:*\n"]
             for pattern, explanation in added:
                 display = pattern[:60] + "..." if len(pattern) > 60 else pattern
-                lines.append(f"  • `{display}`")
+                lines.append(f"  \u2022 `{display}`")
                 if explanation:
                     lines.append(f"    _{explanation}_")
-            await message.answer("\n".join(lines), parse_mode="Markdown")
+            text = "\n".join(lines)
         else:
-            await message.answer("Those errors are already ignored.")
+            text = "Those errors are already ignored."
+
+        await callback.answer()
+        if callback.message:
+            await safe_edit(callback.message, text, reply_markup=None)
+
+    return handler
+
+
+def ignore_cancel_callback(
+    selection_state: "IgnoreSelectionState",
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for ignore cancel button callback (ign_cancel)."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        user_id = callback.from_user.id if callback.from_user else 0
+        selection_state.clear_pending(user_id)
+        await callback.answer()
+        if callback.message:
+            await safe_edit(callback.message, "Cancelled.", reply_markup=None)
 
     return handler
 
@@ -208,10 +371,10 @@ def ignores_command(
         all_containers.update(ignore_manager._runtime_ignores.keys())
 
         if not all_containers:
-            await message.answer("🔇 No ignored errors configured.\n\nUse /ignore to add some.")
+            await message.answer("\U0001f507 No ignored errors configured.\n\nUse /ignore to add some.")
             return
 
-        lines = ["🔇 Ignored Errors\n"]
+        lines = ["\U0001f507 Ignored Errors\n"]
 
         for container in sorted(all_containers):
             ignores = ignore_manager.get_all_ignores(container)
@@ -278,7 +441,7 @@ def ignore_similar_callback(
                 if success:
                     if callback.message:
                         await callback.message.answer(
-                            f"✅ Ignoring: {result['explanation']}\n"
+                            f"\u2705 Ignoring: {result['explanation']}\n"
                             f"Pattern: `{result['pattern']}`",
                             parse_mode="Markdown",
                         )
@@ -292,7 +455,7 @@ def ignore_similar_callback(
         display = full_error[:60] + "..." if len(full_error) > 60 else full_error
         if callback.message:
             await callback.message.answer(
-                f"✅ Ignoring: `{display}`",
+                f"\u2705 Ignoring: `{display}`",
                 parse_mode="Markdown",
             )
         await callback.answer("Added to ignore list")

@@ -1,8 +1,9 @@
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message
+from aiogram.enums import ChatAction
 
-from src.utils.formatting import truncate_message
+from src.utils.formatting import truncate_message, safe_reply
 
 if TYPE_CHECKING:
     from src.monitors.resource_monitor import ResourceMonitor
@@ -62,13 +63,14 @@ def resources_command(
 
         if len(parts) == 1:
             # Summary view
+            await message.answer_chat_action(ChatAction.TYPING)
             summary = await format_resources_summary(resource_monitor)
 
             if not summary:
                 await message.answer("📊 No running containers found")
                 return
 
-            await message.answer(truncate_message(summary), parse_mode="Markdown")
+            await safe_reply(message, truncate_message(summary))
         else:
             # Detailed view for specific container
             container_name = parts[1].strip()
@@ -93,6 +95,6 @@ CPU:    {stats.cpu_percent:5.1f}% `{cpu_bar}` (threshold: {cpu_threshold}%)
 Memory: {stats.memory_percent:5.1f}% `{mem_bar}` (threshold: {mem_threshold}%)
         {stats.memory_display} / {stats.memory_limit_display} limit"""
 
-            await message.answer(response, parse_mode="Markdown")
+            await safe_reply(message, response)
 
     return handler

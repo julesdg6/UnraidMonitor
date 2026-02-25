@@ -22,12 +22,11 @@ def make_mock_provider(text=""):
 
 @pytest.mark.asyncio
 async def test_full_diagnose_flow():
-    """Test full diagnose flow: command -> analysis -> follow-up."""
+    """Test full diagnose flow: command -> analysis -> details callback."""
     from src.state import ContainerStateManager
     from src.models import ContainerInfo
-    from src.bot.diagnose_command import diagnose_command
-    from src.bot.telegram_bot import create_details_handler
-    from src.services.diagnostic import DiagnosticService, DiagnosticContext
+    from src.bot.diagnose_command import diagnose_command, diag_details_callback
+    from src.services.diagnostic import DiagnosticService
 
     # Setup
     state = ContainerStateManager()
@@ -52,30 +51,41 @@ async def test_full_diagnose_flow():
     msg1.from_user.id = 123
     msg1.reply_to_message = None
     msg1.answer = AsyncMock()
+    msg1.answer_chat_action = AsyncMock()
 
     await diagnose_handler(msg1)
 
-    # Should show brief analysis
-    response1 = msg1.answer.call_args_list[-1][0][0]
+    # Should show brief analysis with action buttons
+    last_call = msg1.answer.call_args_list[-1]
+    response1 = last_call[0][0]
     assert "Diagnosis" in response1
-    assert "Want more details" in response1
 
-    # Step 2: User sends "yes"
+    # Should have inline keyboard with More Details button
+    reply_markup = last_call.kwargs.get("reply_markup") or last_call[1].get("reply_markup")
+    assert reply_markup is not None
+    all_buttons = [b for row in reply_markup.inline_keyboard for b in row]
+    button_texts = [b.text for b in all_buttons]
+    assert any("More Details" in t for t in button_texts)
+
+    # Step 2: User clicks "More Details" button
     mock_provider.chat = AsyncMock(return_value=LLMResponse(
         text="Detailed: The root cause is SQLite database locking...",
         stop_reason="end",
     ))
 
-    details_handler = create_details_handler(service)
-    msg2 = MagicMock()
-    msg2.text = "yes"
-    msg2.from_user.id = 123
-    msg2.answer = AsyncMock()
+    details_handler = diag_details_callback(service)
+    callback = MagicMock()
+    callback.data = "diag_details:overseerr"
+    callback.from_user.id = 123
+    callback.answer = AsyncMock()
+    callback.message = MagicMock()
+    callback.message.answer = AsyncMock()
+    callback.message.answer_chat_action = AsyncMock()
 
-    await details_handler(msg2)
+    await details_handler(callback)
 
     # Should show detailed analysis
-    response2 = msg2.answer.call_args[0][0]
+    response2 = callback.message.answer.call_args[0][0]
     assert "Detailed" in response2
 
 
@@ -116,6 +126,7 @@ Image: linuxserver/overseerr:latest"""
     message.from_user.id = 123
     message.reply_to_message = reply_msg
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 
@@ -130,8 +141,7 @@ async def test_diagnose_different_users_independent_contexts():
     """Test that different users have independent diagnostic contexts."""
     from src.state import ContainerStateManager
     from src.models import ContainerInfo
-    from src.bot.diagnose_command import diagnose_command
-    from src.bot.telegram_bot import create_details_handler
+    from src.bot.diagnose_command import diagnose_command, diag_details_callback
     from src.services.diagnostic import DiagnosticService
 
     state = ContainerStateManager()
@@ -151,7 +161,7 @@ async def test_diagnose_different_users_independent_contexts():
     service = DiagnosticService(mock_docker, provider=mock_provider)
 
     diagnose_handler = diagnose_command(state, service)
-    details_handler = create_details_handler(service)
+    details_handler = diag_details_callback(service)
 
     # User 1 diagnoses nginx
     msg1 = MagicMock()
@@ -159,6 +169,7 @@ async def test_diagnose_different_users_independent_contexts():
     msg1.from_user.id = 111
     msg1.reply_to_message = None
     msg1.answer = AsyncMock()
+    msg1.answer_chat_action = AsyncMock()
     await diagnose_handler(msg1)
 
     # User 2 diagnoses redis
@@ -167,22 +178,26 @@ async def test_diagnose_different_users_independent_contexts():
     msg2.from_user.id = 222
     msg2.reply_to_message = None
     msg2.answer = AsyncMock()
+    msg2.answer_chat_action = AsyncMock()
     await diagnose_handler(msg2)
 
     # Both users should have pending contexts
     assert service.has_pending(111)
     assert service.has_pending(222)
 
-    # User 1 asks for details
+    # User 1 clicks More Details
     mock_provider.chat = AsyncMock(return_value=LLMResponse(
         text="Detailed for user 1",
         stop_reason="end",
     ))
-    yes_msg1 = MagicMock()
-    yes_msg1.text = "yes"
-    yes_msg1.from_user.id = 111
-    yes_msg1.answer = AsyncMock()
-    await details_handler(yes_msg1)
+    callback1 = MagicMock()
+    callback1.data = "diag_details:nginx"
+    callback1.from_user.id = 111
+    callback1.answer = AsyncMock()
+    callback1.message = MagicMock()
+    callback1.message.answer = AsyncMock()
+    callback1.message.answer_chat_action = AsyncMock()
+    await details_handler(callback1)
 
     # User 1 should no longer have pending context
     assert not service.has_pending(111)
@@ -219,6 +234,7 @@ async def test_diagnose_no_api_key_configured():
     message.from_user.id = 123
     message.reply_to_message = None
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 
@@ -259,6 +275,7 @@ async def test_diagnose_with_custom_line_count():
     message.from_user.id = 123
     message.reply_to_message = None
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 

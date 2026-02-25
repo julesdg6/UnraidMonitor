@@ -2,6 +2,29 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.9.0] - 2026-02-25
+
+### Added
+- **Container recovery notifications** - When a previously crashed container starts successfully, the bot sends a brief "✅ recovered" alert. Includes 5-minute cooldown to prevent spam and automatically clears crash history on recovery
+- **`/help` section buttons** - Help is now organized into 4 navigable categories (Containers, Server, Alerts, Setup) with inline keyboard buttons instead of a wall of text
+- **Typing indicators** - Long operations (diagnose, resources, Unraid commands, control actions) show "typing..." in chat while processing
+- **`safe_reply` / `safe_edit` helpers** - Centralized Markdown-safe messaging with automatic `TelegramBadRequest` fallback to plain text, used across all command handlers
+- **`format_mute_expiry` helper** - Mute expiry times now show contextual dates: "until 14:30" (same day), "until tomorrow 14:30", or "until Feb 26 14:30" (further out)
+- **Back button in `/manage` sub-views** - All manage sub-views (ignores, mutes, ignore details) now include a ⬅️ Back button to return to the dashboard
+
+### Changed
+- **Control confirmations use inline buttons** - `/restart`, `/stop`, `/start`, `/pull` now show ✅ Confirm / ❌ Cancel buttons instead of requiring a text "yes" reply. Removed `ConfirmationManager` and `YesFilter`
+- **Diagnose "More Details" is a button** - After a `/diagnose` brief, users click a 📋 More Details button instead of typing "more details". Also shows Restart and Logs quick-action buttons. Removed `DetailsFilter`
+- **Diagnose matches all alert types** - Replying `/diagnose` to an alert now works for CRASHED, ERRORS IN, and RESTART LOOP alerts (previously only matched CRASHED)
+- **Ignore selection uses toggle buttons** - `/ignore` now shows ☐/☑ toggle buttons per error with Select All, Done, and Cancel instead of numbered text selection
+- **Manage remove uses delete buttons** - `/manage` → Ignores and Mutes views show per-item 🗑 delete buttons instead of numbered text input
+- **Styled usage messages** - `/restart`, `/stop`, `/start`, `/pull`, and `/logs` usage hints now use code formatting and show partial name examples
+
+### Removed
+- `src/bot/confirmation.py` - Replaced by inline button confirmation in control_commands.py
+- `YesFilter`, `DetailsFilter`, `IgnoreSelectionFilter`, `ManageSelectionFilter` classes - All replaced by callback query handlers
+- `tests/test_yes_handler.py`, `tests/test_details_handler.py`, `tests/test_confirmation.py` - Tests for removed components
+
 ## [0.8.3] - 2026-02-17
 
 ### Fixed

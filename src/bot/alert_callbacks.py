@@ -2,34 +2,24 @@
 
 import asyncio
 import logging
-import re
 from datetime import timedelta
 from typing import Callable, Awaitable, Any, TYPE_CHECKING
 
 from aiogram.types import CallbackQuery
+from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramBadRequest
 import docker
 
 from src.state import ContainerStateManager
 from src.services.container_control import ContainerController
 from src.services.diagnostic import DiagnosticService
+from src.utils.formatting import validate_container_name
 from src.utils.sanitize import sanitize_logs_for_display
 
 if TYPE_CHECKING:
     from src.monitors.memory_monitor import MemoryMonitor
 
 logger = logging.getLogger(__name__)
-
-# Valid Docker container name pattern (alphanumeric, dash, underscore, dot, colon)
-# Docker allows: [a-zA-Z0-9][a-zA-Z0-9_.-]* but we also allow colons for compose names
-_VALID_CONTAINER_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
-
-
-def _validate_container_name(name: str) -> bool:
-    """Validate that a string looks like a valid container name."""
-    if not name or len(name) > 256:
-        return False
-    return bool(_VALID_CONTAINER_NAME.match(name))
 
 
 def restart_callback(
@@ -52,7 +42,7 @@ def restart_callback(
         container_name = parts[1]
 
         # Validate container name format
-        if not _validate_container_name(container_name):
+        if not validate_container_name(container_name):
             logger.warning(f"Invalid container name in callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
             return
@@ -117,7 +107,7 @@ def logs_callback(
         container_name = prefix_parts[1]
 
         # Validate container name format
-        if not _validate_container_name(container_name):
+        if not validate_container_name(container_name):
             logger.warning(f"Invalid container name in callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
             return
@@ -200,7 +190,7 @@ def diagnose_callback(
         container_name = parts[1]
 
         # Validate container name format
-        if not _validate_container_name(container_name):
+        if not validate_container_name(container_name):
             logger.warning(f"Invalid container name in callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
             return
@@ -217,6 +207,7 @@ def diagnose_callback(
         await callback.answer(f"Analyzing {actual_name}...")
 
         if callback.message:
+            await callback.message.answer_chat_action(ChatAction.TYPING)
             await callback.message.answer(f"Analyzing {actual_name}...")
 
         # Gather context
@@ -285,7 +276,7 @@ def mute_callback(
         container_name = prefix_parts[1]
 
         # Validate container name format
-        if not _validate_container_name(container_name):
+        if not validate_container_name(container_name):
             logger.warning(f"Invalid container name in callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
             return
@@ -336,7 +327,7 @@ def mem_kill_callback(
 
         container_name = parts[1]
 
-        if not _validate_container_name(container_name):
+        if not validate_container_name(container_name):
             logger.warning(f"Invalid container name in mem_kill callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
             return
@@ -396,7 +387,7 @@ def mem_restart_yes_callback(
 
         container_name = parts[1]
 
-        if not _validate_container_name(container_name):
+        if not validate_container_name(container_name):
             logger.warning(f"Invalid container name in mem_restart_yes callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
             return
@@ -441,7 +432,7 @@ def mem_restart_no_callback(
 
         container_name = parts[1]
 
-        if not _validate_container_name(container_name):
+        if not validate_container_name(container_name):
             logger.warning(f"Invalid container name in mem_restart_no callback: {container_name[:50]}")
             await callback.answer("Invalid container name")
             return

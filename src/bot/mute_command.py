@@ -3,10 +3,9 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 from datetime import timedelta
 
 from aiogram.types import Message
-from aiogram.exceptions import TelegramBadRequest
 
 from src.alerts.mute_manager import parse_duration
-from src.utils.formatting import extract_container_from_alert, truncate_message
+from src.utils.formatting import extract_container_from_alert, truncate_message, safe_reply, format_mute_expiry
 
 if TYPE_CHECKING:
     from src.alerts.mute_manager import MuteManager
@@ -113,20 +112,12 @@ def mute_command(
         # Add mute
         expiry = mute_manager.add_mute(container, duration)
 
-        # Format expiry time
-        time_str = expiry.strftime("%H:%M")
         mute_msg = (
-            f"🔇 *Muted {container}* until {time_str}\n\n"
+            f"🔇 *Muted {container}* {format_mute_expiry(expiry)}\n\n"
             f"All alerts suppressed for {format_duration(duration)}.\n"
             f"Use `/unmute {container}` to unmute early."
         )
-        try:
-            await message.answer(mute_msg, parse_mode="Markdown")
-        except TelegramBadRequest as e:
-            if "can't parse entities" in str(e):
-                await message.answer(mute_msg.replace("*", "").replace("`", ""))
-            else:
-                raise
+        await safe_reply(message, mute_msg)
 
     return handler
 
@@ -182,25 +173,18 @@ def mutes_command(
         if container_mutes:
             lines.append("\nContainer mutes:")
             for container, expiry in sorted(container_mutes, key=lambda x: x[1]):
-                time_str = expiry.strftime("%H:%M")
-                lines.append(f"  {container}: until {time_str}")
+                lines.append(f"  {container}: {format_mute_expiry(expiry)}")
 
         # Server mutes section
         if server_expiry:
-            lines.append(f"\n🔇 *Server alerts muted* until {server_expiry.strftime('%H:%M')}")
+            lines.append(f"\n🔇 *Server alerts muted* {format_mute_expiry(server_expiry)}")
 
         # Array mutes section
         if array_expiry:
-            lines.append(f"🔇 *Array alerts muted* until {array_expiry.strftime('%H:%M')}")
+            lines.append(f"🔇 *Array alerts muted* {format_mute_expiry(array_expiry)}")
 
         mutes_text = truncate_message("\n".join(lines))
-        try:
-            await message.answer(mutes_text, parse_mode="Markdown")
-        except TelegramBadRequest as e:
-            if "can't parse entities" in str(e):
-                await message.answer(mutes_text.replace("*", "").replace("`", ""))
-            else:
-                raise
+        await safe_reply(message, mutes_text)
 
     return handler
 
@@ -242,14 +226,7 @@ def unmute_command(
 
         # Try to unmute
         if mute_manager.remove_mute(container):
-            unmute_msg = f"🔔 *Unmuted {container}*\n\nAlerts are now enabled."
-            try:
-                await message.answer(unmute_msg, parse_mode="Markdown")
-            except TelegramBadRequest as e:
-                if "can't parse entities" in str(e):
-                    await message.answer(unmute_msg.replace("*", "").replace("`", ""))
-                else:
-                    raise
+            await safe_reply(message, f"🔔 *Unmuted {container}*\n\nAlerts are now enabled.")
         else:
             await message.answer(f"{container} is not muted.")
 

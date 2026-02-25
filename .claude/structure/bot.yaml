@@ -7,39 +7,9 @@ files:
   telegram_bot.py:
     description: Core bot setup, dispatcher creation, and command registration
     exports:
-      - name: YesFilter
-        kind: class
-        description: Context-aware filter for 'yes' — only matches when user has pending confirmation
-        methods:
-          - name: __init__
-            params: [{name: confirmation, type: "ConfirmationManager | None"}]
-            returns: None
-          - name: __call__
-            params: [{name: message, type: Message}]
-            returns: bool
-      - name: DetailsFilter
-        kind: class
-        description: Context-aware filter for follow-up messages — only matches when user has pending diagnostic
-        methods:
-          - name: __init__
-            params: [{name: diagnostic_service, type: "Any | None"}]
-            returns: None
-          - name: __call__
-            params: [{name: message, type: Message}]
-            returns: bool
-      - name: IgnoreSelectionFilter
-        kind: class
-        description: Filter for ignore selection responses during /ignore workflow
-      - name: ManageSelectionFilter
-        kind: class
-        description: Filter for manage selection responses during /manage workflow
       - name: AuthMiddleware
         kind: class
         description: Middleware for user authentication and chat ID tracking
-      - name: create_details_handler
-        kind: function
-        signature: (diagnostic_service: DiagnosticService) -> Callable[[Message], Awaitable[None]]
-        description: Factory for details follow-up handler after /diagnose
       - name: create_auth_middleware
         kind: function
         signature: (allowed_users: list[int], chat_id_store=None) -> AuthMiddleware
@@ -54,8 +24,8 @@ files:
         description: Create dispatcher with auth middleware
       - name: register_commands
         kind: function
-        signature: (dp: Dispatcher, state: ContainerStateManager, ...) -> tuple[ConfirmationManager | None, DiagnosticService | None]
-        description: Register all command handlers and return confirmation/diagnostic managers
+        signature: (dp: Dispatcher, state: ContainerStateManager, ...) -> tuple[ContainerController | None, DiagnosticService | None]
+        description: Register all command handlers and return controller/diagnostic service
       - name: register_setup_wizard
         kind: function
         signature: (dp: Dispatcher, wizard: SetupWizard, on_complete: Callable[[], Awaitable[None]] | None = None, register_start: bool = True) -> None
@@ -66,13 +36,13 @@ files:
       - from: src.bot.commands
         items: [help_command, status_command, logs_command]
       - from: src.bot.control_commands
-        items: [restart_command, stop_command, start_command, pull_command, create_confirm_handler]
-      - from: src.bot.confirmation
-        items: [ConfirmationManager]
+        items: [restart_command, stop_command, start_command, pull_command, create_ctrl_confirm_callback, create_ctrl_cancel_callback]
       - from: src.bot.diagnose_command
-        items: [diagnose_command]
+        items: [diagnose_command, diag_details_callback]
       - from: src.bot.ignore_command
-        items: [ignore_command, ignores_command, ignore_selection_handler, IgnoreSelectionState, ignore_similar_callback]
+        items: [ignore_command, ignores_command, IgnoreSelectionState, ignore_similar_callback, ignore_toggle_callback, ignore_all_callback, ignore_done_callback, ignore_cancel_callback]
+      - from: src.bot.manage_command
+        items: [manage_command, manage_back_callback, manage_status_callback, manage_resources_callback, manage_server_callback, manage_disks_callback, manage_ignores_callback, manage_ignores_container_callback, manage_mutes_callback, manage_delete_ignore_callback, manage_delete_mute_callback]
       - from: src.services.container_control
         items: [ContainerController]
       - from: src.services.diagnostic
@@ -108,33 +78,35 @@ files:
         items: [ContainerStateManager]
 
   control_commands.py:
-    description: Container control commands (restart, stop, start, pull) with confirmation
+    description: Container control commands (restart, stop, start, pull) with inline button confirmations
     exports:
       - name: restart_command
         kind: function
-        signature: (state: ContainerStateManager, controller: ContainerController, confirmation: ConfirmationManager) -> Callable[[Message], Awaitable[None]]
+        signature: (state: ContainerStateManager, controller: ContainerController) -> Callable[[Message], Awaitable[None]]
         description: Factory for /restart command handler
       - name: stop_command
         kind: function
-        signature: (state: ContainerStateManager, controller: ContainerController, confirmation: ConfirmationManager) -> Callable[[Message], Awaitable[None]]
+        signature: (state: ContainerStateManager, controller: ContainerController) -> Callable[[Message], Awaitable[None]]
         description: Factory for /stop command handler
       - name: start_command
         kind: function
-        signature: (state: ContainerStateManager, controller: ContainerController, confirmation: ConfirmationManager) -> Callable[[Message], Awaitable[None]]
+        signature: (state: ContainerStateManager, controller: ContainerController) -> Callable[[Message], Awaitable[None]]
         description: Factory for /start command handler
       - name: pull_command
         kind: function
-        signature: (state: ContainerStateManager, controller: ContainerController, confirmation: ConfirmationManager) -> Callable[[Message], Awaitable[None]]
+        signature: (state: ContainerStateManager, controller: ContainerController) -> Callable[[Message], Awaitable[None]]
         description: Factory for /pull command handler
-      - name: create_confirm_handler
+      - name: create_ctrl_confirm_callback
         kind: function
-        signature: (controller: ContainerController, confirmation: ConfirmationManager) -> Callable[[Message], Awaitable[None]]
-        description: Factory for confirmation handler that responds to 'yes'
+        signature: (state: ContainerStateManager, controller: ContainerController) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for inline button confirm callback
+      - name: create_ctrl_cancel_callback
+        kind: function
+        signature: () -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for inline button cancel callback
     imports:
       - from: src.state
         items: [ContainerStateManager]
-      - from: src.bot.confirmation
-        items: [ConfirmationManager]
       - from: src.services.container_control
         items: [ContainerController]
 
@@ -144,7 +116,11 @@ files:
       - name: diagnose_command
         kind: function
         signature: (state: ContainerStateManager, diagnostic_service: DiagnosticService, max_lines: int = 500) -> Callable[[Message], Awaitable[None]]
-        description: Factory for /diagnose command handler with AI analysis
+        description: Factory for /diagnose command handler with AI analysis and inline buttons
+      - name: diag_details_callback
+        kind: function
+        signature: (diagnostic_service: DiagnosticService) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for diag_details callback (shows extended diagnosis)
     imports:
       - from: src.state
         items: [ContainerStateManager]
@@ -259,28 +235,46 @@ files:
         items: [ArrayMuteManager]
 
   ignore_command.py:
-    description: Error pattern ignoring via /ignore, /ignores commands and callbacks
+    description: Error pattern ignoring via /ignore, /ignores commands and inline button callbacks
     exports:
       - name: IgnoreSelectionState
         kind: class
-        description: Shared state for ignore selections across handlers
+        description: Shared state for ignore selections with toggle tracking
         methods:
           - name: has_pending(user_id: int) -> bool
             description: Check if user has a pending selection
           - name: get_pending(user_id: int) -> tuple[str, list[str]] | None
             description: Get pending selection (container, errors)
+          - name: get_selected(user_id: int) -> set[int]
+            description: Get selected indices for user
+          - name: toggle_selection(user_id: int, index: int) -> None
+            description: Toggle a single index in the selection
+          - name: select_all(user_id: int) -> None
+            description: Select all or deselect all (toggle)
           - name: set_pending(user_id: int, container: str, errors: list[str]) -> None
-            description: Store pending selection
+            description: Store pending selection with empty selected set
           - name: clear_pending(user_id: int) -> None
             description: Clear pending selection
       - name: ignore_command
         kind: function
         signature: (recent_buffer: RecentErrorsBuffer, ignore_manager: IgnoreManager, selection_state: IgnoreSelectionState) -> Callable[[Message], Awaitable[None]]
-        description: Factory for /ignore command handler (reply to error alert)
-      - name: ignore_selection_handler
+        description: Factory for /ignore command handler with inline toggle buttons
+      - name: ignore_toggle_callback
         kind: function
-        signature: (ignore_manager: IgnoreManager, selection_state: IgnoreSelectionState, pattern_analyzer: PatternAnalyzer | None = None) -> Callable[[Message], Awaitable[None]]
-        description: Factory for ignore selection follow-up handler (numeric input)
+        signature: (selection_state: IgnoreSelectionState) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for ign_toggle callback (toggles single error selection)
+      - name: ignore_all_callback
+        kind: function
+        signature: (selection_state: IgnoreSelectionState) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for ign_all callback (select/deselect all)
+      - name: ignore_done_callback
+        kind: function
+        signature: (ignore_manager: IgnoreManager, selection_state: IgnoreSelectionState, pattern_analyzer: PatternAnalyzer | None = None) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for ign_done callback (processes selected errors)
+      - name: ignore_cancel_callback
+        kind: function
+        signature: (selection_state: IgnoreSelectionState) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for ign_cancel callback (cancels selection)
       - name: ignores_command
         kind: function
         signature: (ignore_manager: IgnoreManager) -> Callable[[Message], Awaitable[None]]
@@ -298,30 +292,20 @@ files:
         items: [PatternAnalyzer]
 
   manage_command.py:
-    description: Dashboard for managing ignores and mutes via /manage command
+    description: Dashboard for managing ignores and mutes via /manage command with inline buttons
     exports:
-      - name: ManageSelectionState
-        kind: class
-        description: Shared state for manage selections across handlers
-        methods:
-          - name: set_pending_ignore(user_id: int, container: str, ignores: list[tuple[int, str, str | None]]) -> None
-            description: Store pending ignore removal selections
-          - name: get_pending_ignore(user_id: int) -> tuple[str, list[tuple[int, str, str | None]]] | None
-            description: Get pending ignore removal state
-          - name: clear_pending_ignore(user_id: int) -> None
-            description: Clear pending ignore removal
-          - name: set_pending_mute(user_id: int, mutes: list[tuple[str, str]]) -> None
-            description: Store pending mute removal selections
-          - name: get_pending_mute(user_id: int) -> list[tuple[str, str]] | None
-            description: Get pending mute removal state
-          - name: clear_pending_mute(user_id: int) -> None
-            description: Clear pending mute removal
-          - name: has_pending(user_id: int) -> bool
-            description: Check if user has any pending selections
+      - name: _build_manage_keyboard
+        kind: function
+        signature: () -> InlineKeyboardMarkup
+        description: Build the main /manage dashboard keyboard
       - name: manage_command
         kind: function
         signature: (system_monitor: UnraidSystemMonitor | None = None) -> Callable[[Message], Awaitable[None]]
         description: Factory for /manage command handler (dashboard with buttons)
+      - name: manage_back_callback
+        kind: function
+        signature: (system_monitor: UnraidSystemMonitor | None = None) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for manage:back callback (re-renders dashboard)
       - name: manage_status_callback
         kind: function
         signature: (state: ContainerStateManager) -> Callable[[CallbackQuery], Awaitable[None]]
@@ -341,19 +325,23 @@ files:
       - name: manage_ignores_callback
         kind: function
         signature: (ignore_manager: IgnoreManager) -> Callable[[CallbackQuery], Awaitable[None]]
-        description: Factory for manage ignores button callback
+        description: Factory for manage ignores button callback (with Back button)
       - name: manage_ignores_container_callback
         kind: function
-        signature: (ignore_manager: IgnoreManager, selection_state: ManageSelectionState) -> Callable[[CallbackQuery], Awaitable[None]]
-        description: Factory for container selection in ignore management
+        signature: (ignore_manager: IgnoreManager) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for container ignore detail view with delete buttons
       - name: manage_mutes_callback
         kind: function
-        signature: (mute_manager: MuteManager, server_mute_manager: ServerMuteManager | None, array_mute_manager: ArrayMuteManager | None, selection_state: ManageSelectionState) -> Callable[[CallbackQuery], Awaitable[None]]
-        description: Factory for manage mutes button callback
-      - name: manage_selection_handler
+        signature: (mute_manager: MuteManager, server_mute_manager: ServerMuteManager | None, array_mute_manager: ArrayMuteManager | None) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for manage mutes view with delete buttons
+      - name: manage_delete_ignore_callback
         kind: function
-        signature: (ignore_manager: IgnoreManager, mute_manager: MuteManager, server_mute_manager: ServerMuteManager | None, array_mute_manager: ArrayMuteManager | None, selection_state: ManageSelectionState) -> Callable[[Message], Awaitable[None]]
-        description: Factory for manage selection follow-up handler (numeric input)
+        signature: (ignore_manager: IgnoreManager) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for mdi:* callback (deletes individual ignore, re-renders list)
+      - name: manage_delete_mute_callback
+        kind: function
+        signature: (mute_manager: MuteManager, server_mute_manager: ServerMuteManager | None, array_mute_manager: ArrayMuteManager | None) -> Callable[[CallbackQuery], Awaitable[None]]
+        description: Factory for mdm:* callback (unmutes, re-renders list)
     imports:
       - from: src.state
         items: [ContainerStateManager]
@@ -456,35 +444,6 @@ files:
         items: [ArrayMonitor]
       - from: src.unraid.client
         items: [UnraidClientWrapper]
-
-  confirmation.py:
-    description: Confirmation state management for control commands
-    exports:
-      - name: PendingConfirmation
-        kind: class
-        description: A pending confirmation waiting for user response
-        attributes:
-          - name: action
-            type: str
-            description: Action type (restart, stop, start, pull)
-          - name: container_name
-            type: str
-            description: Target container name
-          - name: expires_at
-            type: datetime
-            description: When the confirmation expires
-      - name: ConfirmationManager
-        kind: class
-        description: Manages pending confirmations for control commands
-        methods:
-          - name: __init__(timeout_seconds: int = 60) -> None
-            description: Initialize with confirmation timeout
-          - name: request(user_id: int, action: str, container_name: str) -> None
-            description: Store a pending confirmation for a user
-          - name: get_pending(user_id: int) -> PendingConfirmation | None
-            description: Get pending confirmation for user if not expired
-          - name: confirm(user_id: int) -> PendingConfirmation | None
-            description: Get and clear pending confirmation if valid
 
   setup_wizard.py:
     description: Interactive setup wizard for first-run configuration

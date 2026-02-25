@@ -2,13 +2,12 @@ import asyncio
 import logging
 from typing import Callable, Awaitable, TYPE_CHECKING
 
-from aiogram.types import Message
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 import docker
 
 from src.models import ContainerInfo
 from src.state import ContainerStateManager
-from src.utils.formatting import format_bytes, format_uptime, escape_markdown
+from src.utils.formatting import format_bytes, format_uptime, escape_markdown, safe_reply, safe_edit
 from src.utils.sanitize import sanitize_logs_for_display
 from src.bot.resources_command import format_progress_bar
 
@@ -18,47 +17,108 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-HELP_TEXT = """📋 *Commands*
+# Help sections — each key is a callback suffix, value is (emoji, title, content)
+_HELP_SECTIONS: dict[str, tuple[str, str, str]] = {
+    "containers": (
+        "📦",
+        "Containers",
+        "/status [name] — Container status summary or details\n"
+        "/resources [name] — CPU & memory usage\n"
+        "/logs <name> [n] — View recent container logs\n"
+        "/diagnose <name> — AI-powered log analysis\n"
+        "/restart <name> — Restart a container\n"
+        "/stop <name> — Stop a container\n"
+        "/start <name> — Start a container\n"
+        "/pull <name> — Pull latest image & recreate\n"
+        "\n_Partial names work: /status rad → radarr_",
+    ),
+    "server": (
+        "🖥",
+        "Unraid Server",
+        "/server — Quick server overview\n"
+        "/server detailed — Full server stats\n"
+        "/array — Array status and disk health\n"
+        "/disks — Individual disk usage details\n"
+        "/cancel-kill — Cancel pending memory kill",
+    ),
+    "alerts": (
+        "🔔",
+        "Alerts & Ignores",
+        "/mute <name> <dur> — Mute container alerts\n"
+        "/unmute <name> — Unmute container\n"
+        "/mute-server <dur> — Mute server alerts\n"
+        "/unmute-server — Unmute server\n"
+        "/mute-array <dur> — Mute array alerts\n"
+        "/unmute-array — Unmute array\n"
+        "/mutes — List active mutes\n"
+        "/ignore — Ignore error patterns\n"
+        "/ignores — List active ignores\n"
+        "\n_Reply /diagnose to crash alerts for AI analysis_\n"
+        "_Click \"Ignore Similar\" on alerts for smart patterns_",
+    ),
+    "setup": (
+        "⚙️",
+        "Setup & Management",
+        "/setup — Re-run the setup wizard\n"
+        "/cancel — Exit the setup wizard\n"
+        "/manage — Dashboard with status, resources, ignores & mutes\n"
+        "/health — Bot version, uptime & monitor status\n"
+        "/model — Switch LLM provider and model at runtime\n"
+        "\n_AI features need at least one LLM key configured_",
+    ),
+}
 
-*Containers*
-/status [name] • /resources [name]
-/logs <name> [n] • /diagnose <name>
-/restart • /stop • /start • /pull
+HELP_OVERVIEW = "📋 *Commands*\n\nChoose a category:"
 
-*Unraid Server*
-/server [detailed] • /array • /disks
 
-*Memory Management*
-/cancel-kill • Cancel pending container kill
-
-*Alerts & Ignores*
-/mute <name> <dur> • /unmute <name>
-/mute-server • /mute-array + unmute
-/mutes • /ignore • /ignores
-
-*Setup & Management*
-/setup • Re-run the setup wizard
-/cancel • Exit the setup wizard
-/manage • Dashboard with status, resources, ignores & mutes
-/health • Bot version, uptime & monitor status
-/model • Switch LLM provider and model at runtime
-
-_Partial names work: /status rad → radarr_
-_Reply /diagnose to crash alerts for AI analysis_
-_Click "Ignore Similar" on alerts for smart patterns_
-_AI features need at least one LLM key configured_"""
+def _build_help_keyboard() -> InlineKeyboardMarkup:
+    """Build the help category selection keyboard."""
+    buttons = []
+    for key, (emoji, title, _) in _HELP_SECTIONS.items():
+        buttons.append([
+            InlineKeyboardButton(text=f"{emoji} {title}", callback_data=f"help:{key}")
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def help_command(state: ContainerStateManager) -> Callable[[Message], Awaitable[None]]:
     """Factory for /help command handler."""
     async def handler(message: Message) -> None:
-        try:
-            await message.answer(HELP_TEXT, parse_mode="Markdown")
-        except TelegramBadRequest as e:
-            if "can't parse entities" in str(e):
-                await message.answer(HELP_TEXT.replace("*", "").replace("`", ""))
-            else:
-                raise
+        await safe_reply(message, HELP_OVERVIEW, reply_markup=_build_help_keyboard())
+    return handler
+
+
+def help_section_callback() -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for help section button callback."""
+    async def handler(callback: CallbackQuery) -> None:
+        data = callback.data or ""
+        section_key = data.split(":", 1)[1] if ":" in data else ""
+
+        section = _HELP_SECTIONS.get(section_key)
+        if not section:
+            await callback.answer("Unknown section")
+            return
+
+        emoji, title, content = section
+        text = f"{emoji} *{title}*\n\n{content}"
+
+        await callback.answer()
+        if callback.message:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="help:back")]
+            ])
+            await safe_edit(callback.message, text, reply_markup=keyboard)
+
+    return handler
+
+
+def help_back_callback() -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for help back button callback."""
+    async def handler(callback: CallbackQuery) -> None:
+        await callback.answer()
+        if callback.message:
+            await safe_edit(callback.message, HELP_OVERVIEW, reply_markup=_build_help_keyboard())
+
     return handler
 
 
@@ -183,13 +243,7 @@ def status_command(
                 names = ", ".join(escape_markdown(m.name) for m in matches)
                 response = f"Multiple matches found: {names}\n\n_Be more specific_"
 
-        try:
-            await message.answer(response, parse_mode="Markdown")
-        except TelegramBadRequest as e:
-            if "can't parse entities" in str(e):
-                await message.answer(response.replace("*", "").replace("`", ""))
-            else:
-                raise
+        await safe_reply(message, response)
 
     return handler
 
@@ -206,7 +260,12 @@ def logs_command(
         parts = text.strip().split()
 
         if len(parts) < 2:
-            await message.answer("Usage: /logs <container> [lines]\n\nExample: /logs radarr 50")
+            await safe_reply(
+                message,
+                "Usage: `/logs <container> [lines]`\n\n"
+                "Example: `/logs radarr 50`\n"
+                "_Partial names work: /logs rad → radarr_",
+            )
             return
 
         container_name = parts[1]
@@ -229,13 +288,7 @@ def logs_command(
 
         if len(matches) > 1:
             names = ", ".join(escape_markdown(m.name) for m in matches)
-            try:
-                await message.answer(f"Multiple matches found: {names}\n\n_Be more specific_", parse_mode="Markdown")
-            except TelegramBadRequest as e:
-                if "can't parse entities" in str(e):
-                    await message.answer(f"Multiple matches found: {names}\n\nBe more specific")
-                else:
-                    raise
+            await safe_reply(message, f"Multiple matches found: {names}\n\n_Be more specific_")
             return
 
         container = matches[0]
@@ -260,14 +313,7 @@ def logs_command(
             log_text = sanitize_logs_for_display(log_text)
 
             response = f"{header}{log_text}{footer}"
-            try:
-                await message.answer(response, parse_mode="Markdown")
-            except TelegramBadRequest as e:
-                if "can't parse entities" in str(e):
-                    plain = f"Logs: {container.name} (last {lines} lines)\n\n{log_text}"
-                    await message.answer(plain)
-                else:
-                    raise
+            await safe_reply(message, response)
 
         except docker.errors.NotFound:
             await message.answer(f"❌ Container '{container.name}' not found in Docker")

@@ -1,6 +1,84 @@
 """Shared formatting utility functions."""
 
 import re
+from datetime import datetime, timedelta
+
+from aiogram.types import Message
+from aiogram.exceptions import TelegramBadRequest
+
+# Valid Docker container name pattern (alphanumeric, dash, underscore, dot, colon)
+# Docker allows: [a-zA-Z0-9][a-zA-Z0-9_.-]* but we also allow colons for compose names
+_VALID_CONTAINER_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
+
+
+def validate_container_name(name: str) -> bool:
+    """Validate that a string looks like a valid container name."""
+    if not name or len(name) > 256:
+        return False
+    return bool(_VALID_CONTAINER_NAME.match(name))
+
+
+def _strip_markdown(text: str) -> str:
+    """Strip Markdown V1 formatting characters for plain-text fallback."""
+    return text.replace("*", "").replace("`", "").replace("_", "")
+
+
+async def safe_reply(
+    message: Message,
+    text: str,
+    parse_mode: str = "Markdown",
+    **kwargs: object,
+) -> Message:
+    """Send a message with Markdown, falling back to plain text on parse failure."""
+    try:
+        return await message.answer(text, parse_mode=parse_mode, **kwargs)
+    except TelegramBadRequest as e:
+        if "can't parse entities" in str(e):
+            return await message.answer(_strip_markdown(text), **kwargs)
+        raise
+
+
+async def safe_edit(
+    message: Message,
+    text: str,
+    parse_mode: str = "Markdown",
+    **kwargs: object,
+) -> Message:
+    """Edit a message with Markdown, falling back to plain text on parse failure."""
+    try:
+        return await message.edit_text(text, parse_mode=parse_mode, **kwargs)
+    except TelegramBadRequest as e:
+        if "can't parse entities" in str(e):
+            return await message.edit_text(_strip_markdown(text), **kwargs)
+        raise
+
+
+def format_mute_expiry(expiry: datetime) -> str:
+    """Format mute expiry in a human-readable way.
+
+    - Same day: "until 14:30"
+    - Tomorrow: "until tomorrow 14:30"
+    - Further: "until Feb 26 14:30"
+    """
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("Europe/London")
+    now = datetime.now(tz)
+
+    # Make expiry timezone-aware if naive
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=tz)
+    else:
+        expiry = expiry.astimezone(tz)
+
+    time_str = expiry.strftime("%H:%M")
+
+    if expiry.date() == now.date():
+        return f"until {time_str}"
+    elif expiry.date() == (now + timedelta(days=1)).date():
+        return f"until tomorrow {time_str}"
+    else:
+        return f"until {expiry.strftime('%b %d')} {time_str}"
 
 # Patterns to extract container name from various alert types
 _ALERT_PATTERNS = [

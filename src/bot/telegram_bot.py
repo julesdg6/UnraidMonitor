@@ -4,26 +4,28 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from aiogram import Bot, Dispatcher, BaseMiddleware, F
 from aiogram.filters import Command, Filter
 from aiogram.types import Message, CallbackQuery
-from aiogram.exceptions import TelegramBadRequest
 import docker
 
 from src.state import ContainerStateManager
-from src.bot.commands import help_command, status_command, logs_command
+from src.bot.commands import help_command, help_section_callback, help_back_callback, status_command, logs_command
 from src.bot.control_commands import (
     restart_command,
     stop_command,
     start_command,
     pull_command,
-    create_confirm_handler,
+    create_ctrl_confirm_callback,
+    create_ctrl_cancel_callback,
 )
-from src.bot.confirmation import ConfirmationManager
-from src.bot.diagnose_command import diagnose_command
+from src.bot.diagnose_command import diagnose_command, diag_details_callback
 from src.bot.ignore_command import (
     ignore_command,
     ignores_command,
-    ignore_selection_handler,
     IgnoreSelectionState,
     ignore_similar_callback,
+    ignore_toggle_callback,
+    ignore_all_callback,
+    ignore_done_callback,
+    ignore_cancel_callback,
 )
 from src.bot.alert_callbacks import (
     restart_callback,
@@ -39,6 +41,7 @@ from src.bot.memory_commands import cancel_kill_command
 from src.bot.mute_command import mute_command, mutes_command, unmute_command
 from src.bot.manage_command import (
     manage_command,
+    manage_back_callback,
     manage_status_callback,
     manage_resources_callback,
     manage_server_callback,
@@ -46,8 +49,8 @@ from src.bot.manage_command import (
     manage_ignores_callback,
     manage_ignores_container_callback,
     manage_mutes_callback,
-    manage_selection_handler,
-    ManageSelectionState,
+    manage_delete_ignore_callback,
+    manage_delete_mute_callback,
 )
 from src.bot.resources_command import resources_command
 from src.bot.unraid_commands import (
@@ -67,120 +70,6 @@ if TYPE_CHECKING:
     from src.bot.setup_wizard import SetupWizard
 
 logger = logging.getLogger(__name__)
-
-
-class YesFilter(Filter):
-    """Filter for 'yes' confirmation messages.
-
-    Only matches when the user has a pending command confirmation
-    (from /restart, /stop, /start, /pull). When no confirmation is
-    pending, 'yes' falls through to subsequent handlers (e.g. NL).
-    """
-
-    def __init__(self, confirmation: ConfirmationManager | None = None):
-        self._confirmation = confirmation
-
-    async def __call__(self, message: Message) -> bool:
-        if not message.text:
-            return False
-        if message.text.strip().lower() != "yes":
-            return False
-        # If no confirmation manager, match unconditionally (backward compat)
-        if self._confirmation is None:
-            return True
-        # Only match if this user has a pending confirmation
-        user_id = message.from_user.id if message.from_user else 0
-        return self._confirmation.get_pending(user_id) is not None
-
-
-class DetailsFilter(Filter):
-    """Filter for 'yes', 'more', 'details' follow-up messages.
-
-    Only matches when the user has a pending diagnostic context
-    (from /diagnose). When no context is pending, these words
-    fall through to subsequent handlers (e.g. NL).
-    """
-
-    TRIGGERS = {"yes", "more", "details", "more details", "tell me more", "expand"}
-
-    def __init__(self, diagnostic_service: Any | None = None):
-        self._diagnostic_service = diagnostic_service
-
-    async def __call__(self, message: Message) -> bool:
-        if not message.text:
-            return False
-        if message.text.strip().lower() not in self.TRIGGERS:
-            return False
-        # If no diagnostic service, match unconditionally (backward compat)
-        if self._diagnostic_service is None:
-            return True
-        # Only match if this user has a pending diagnostic context
-        user_id = message.from_user.id if message.from_user else 0
-        return self._diagnostic_service.has_pending(user_id)
-
-
-class IgnoreSelectionFilter(Filter):
-    """Filter for ignore selection responses (numbers like '1', '1,3', or 'all')."""
-
-    def __init__(self, selection_state: IgnoreSelectionState):
-        self.selection_state = selection_state
-
-    async def __call__(self, message: Message) -> bool:
-        if not message.text:
-            return False
-        # Don't intercept commands - let them be processed normally
-        if message.text.startswith("/"):
-            return False
-        user_id = message.from_user.id if message.from_user else 0
-        # Only match if user has a pending selection
-        return self.selection_state.has_pending(user_id)
-
-
-class ManageSelectionFilter(Filter):
-    """Filter for manage selection responses (numbers or 'cancel')."""
-
-    def __init__(self, selection_state: ManageSelectionState):
-        self.selection_state = selection_state
-
-    async def __call__(self, message: Message) -> bool:
-        if not message.text:
-            return False
-        # Don't intercept commands - let them be processed normally
-        if message.text.startswith("/"):
-            return False
-        user_id = message.from_user.id if message.from_user else 0
-        # Only match if user has a pending selection
-        return self.selection_state.has_pending(user_id)
-
-
-def create_details_handler(
-    diagnostic_service: DiagnosticService,
-) -> Callable[[Message], Awaitable[None]]:
-    """Factory for details follow-up handler."""
-
-    async def handler(message: Message) -> None:
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
-
-        if not diagnostic_service.has_pending(user_id):
-            # No pending context - don't respond (might be unrelated)
-            return
-
-        details = await diagnostic_service.get_details(user_id)
-        if details:
-            response = f"*Detailed Analysis*\n\n{details}"
-            # Try Markdown first, fall back to plain text if parsing fails
-            try:
-                await message.answer(response, parse_mode="Markdown")
-            except TelegramBadRequest as e:
-                if "can't parse entities" in str(e):
-                    plain_response = f"Detailed Analysis\n\n{details}"
-                    await message.answer(plain_response)
-                else:
-                    raise
-
-    return handler
 
 
 class AuthMiddleware(BaseMiddleware):
@@ -245,39 +134,46 @@ def register_commands(
     nl_processor: Any | None = None,
     ai_config: Any | None = None,
     bot_config: Any | None = None,
-) -> tuple[ConfirmationManager | None, DiagnosticService | None]:
+) -> tuple[ContainerController | None, DiagnosticService | None]:
     """Register all command handlers.
 
-    Returns tuple of (ConfirmationManager, DiagnosticService) if docker_client provided.
+    Returns tuple of (ContainerController, DiagnosticService) if docker_client provided.
     """
     dp.message.register(help_command(state), Command("help"))
+    dp.callback_query.register(
+        help_section_callback(),
+        F.data.startswith("help:") & (F.data != "help:back"),
+    )
+    dp.callback_query.register(help_back_callback(), F.data == "help:back")
     dp.message.register(status_command(state, resource_monitor), Command("status"))
 
     if docker_client:
         _log_max_lines = bot_config.log_max_lines if bot_config else 100
         _log_max_chars = bot_config.log_max_chars if bot_config else 4000
         _diagnose_max_lines = bot_config.diagnose_max_lines if bot_config else 500
-        _confirm_timeout = bot_config.confirmation_timeout_seconds if bot_config else 60
 
         dp.message.register(
             logs_command(state, docker_client, max_lines=_log_max_lines, max_chars=_log_max_chars),
             Command("logs"),
         )
 
-        # Create controller and confirmation manager for control commands
+        # Create controller for control commands
         controller = ContainerController(docker_client, protected_containers or [])
-        confirmation = ConfirmationManager(timeout_seconds=_confirm_timeout)
 
-        # Register control commands
-        dp.message.register(restart_command(state, controller, confirmation), Command("restart"))
-        dp.message.register(stop_command(state, controller, confirmation), Command("stop"))
-        dp.message.register(start_command(state, controller, confirmation), Command("start"))
-        dp.message.register(pull_command(state, controller, confirmation), Command("pull"))
+        # Register control commands (no ConfirmationManager needed — uses inline buttons)
+        dp.message.register(restart_command(state, controller), Command("restart"))
+        dp.message.register(stop_command(state, controller), Command("stop"))
+        dp.message.register(start_command(state, controller), Command("start"))
+        dp.message.register(pull_command(state, controller), Command("pull"))
 
-        # Register "yes" handler for confirmations
-        dp.message.register(
-            create_confirm_handler(controller, confirmation),
-            YesFilter(confirmation),
+        # Register control confirmation/cancel callbacks
+        dp.callback_query.register(
+            create_ctrl_confirm_callback(state, controller),
+            F.data.startswith("ctrl_confirm:"),
+        )
+        dp.callback_query.register(
+            create_ctrl_cancel_callback(),
+            F.data == "ctrl_cancel",
         )
 
         # Set up diagnostic service
@@ -299,10 +195,10 @@ def register_commands(
             Command("diagnose"),
         )
 
-        # Register details follow-up handler
-        dp.message.register(
-            create_details_handler(diagnostic_service),
-            DetailsFilter(diagnostic_service),
+        # Register diagnosis details callback (replaces DetailsFilter text handler)
+        dp.callback_query.register(
+            diag_details_callback(diagnostic_service),
+            F.data.startswith("diag_details:"),
         )
 
         # Register /resources command
@@ -325,10 +221,22 @@ def register_commands(
                 ignores_command(ignore_manager),
                 Command("ignores"),
             )
-            # Register handler for selection follow-up (numbers like "1,3" or "all")
-            dp.message.register(
-                ignore_selection_handler(ignore_manager, selection_state, pattern_analyzer),
-                IgnoreSelectionFilter(selection_state),
+            # Register ignore toggle/select-all/done/cancel callbacks
+            dp.callback_query.register(
+                ignore_toggle_callback(selection_state),
+                F.data.startswith("ign_toggle:"),
+            )
+            dp.callback_query.register(
+                ignore_all_callback(selection_state),
+                F.data == "ign_all",
+            )
+            dp.callback_query.register(
+                ignore_done_callback(ignore_manager, selection_state, pattern_analyzer),
+                F.data == "ign_done",
+            )
+            dp.callback_query.register(
+                ignore_cancel_callback(selection_state),
+                F.data == "ign_cancel",
             )
 
             # Register callback handler for ignore similar button
@@ -433,14 +341,16 @@ def register_commands(
 
         # Register /manage command and callbacks
         if ignore_manager is not None and mute_manager is not None:
-            manage_state = ManageSelectionState()
-
             dp.message.register(
                 manage_command(unraid_system_monitor),
                 Command("manage"),
             )
 
             # Manage callbacks
+            dp.callback_query.register(
+                manage_back_callback(unraid_system_monitor),
+                F.data == "manage:back",
+            )
             dp.callback_query.register(
                 manage_status_callback(state),
                 F.data == "manage:status",
@@ -462,20 +372,20 @@ def register_commands(
                 F.data == "manage:ignores",
             )
             dp.callback_query.register(
-                manage_ignores_container_callback(ignore_manager, manage_state),
+                manage_ignores_container_callback(ignore_manager),
                 F.data.startswith("manage:ignores:"),
             )
             dp.callback_query.register(
-                manage_mutes_callback(mute_manager, server_mute_manager, array_mute_manager, manage_state),
+                manage_mutes_callback(mute_manager, server_mute_manager, array_mute_manager),
                 F.data == "manage:mutes",
             )
-
-            # Register manage selection handler (for numeric input)
-            dp.message.register(
-                manage_selection_handler(
-                    ignore_manager, mute_manager, server_mute_manager, array_mute_manager, manage_state
-                ),
-                ManageSelectionFilter(manage_state),
+            dp.callback_query.register(
+                manage_delete_ignore_callback(ignore_manager),
+                F.data.startswith("mdi:"),
+            )
+            dp.callback_query.register(
+                manage_delete_mute_callback(mute_manager, server_mute_manager, array_mute_manager),
+                F.data.startswith("mdm:"),
             )
 
         # Register /model command for runtime LLM provider switching
@@ -515,7 +425,7 @@ def register_commands(
                 NLFilter(),
             )
 
-        return confirmation, diagnostic_service
+        return controller, diagnostic_service
 
     return None, None
 

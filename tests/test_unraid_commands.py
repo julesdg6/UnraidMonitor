@@ -65,6 +65,7 @@ async def test_server_command_shows_metrics():
     message = MagicMock()
     message.text = "/server"
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 
@@ -106,6 +107,7 @@ async def test_server_command_detailed():
     message = MagicMock()
     message.text = "/server detailed"
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 
@@ -130,6 +132,7 @@ async def test_server_command_not_connected():
     message = MagicMock()
     message.text = "/server"
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 
@@ -213,14 +216,16 @@ async def test_unmute_server_command(tmp_path):
 
 
 def test_unraid_commands_in_help():
-    """Test that Unraid commands are in help text."""
-    from src.bot.commands import HELP_TEXT
+    """Test that Unraid commands are in help section content."""
+    from src.bot.commands import _HELP_SECTIONS
+    server_content = _HELP_SECTIONS["server"][2]
+    alerts_content = _HELP_SECTIONS["alerts"][2]
 
-    assert "/server" in HELP_TEXT
-    assert "/array" in HELP_TEXT
-    assert "/disks" in HELP_TEXT
-    assert "/mute-server" in HELP_TEXT
-    assert "/mute-array" in HELP_TEXT
+    assert "/server" in server_content
+    assert "/array" in server_content
+    assert "/disks" in server_content
+    assert "/mute-server" in alerts_content
+    assert "/mute-array" in alerts_content
 
 
 @pytest.mark.asyncio
@@ -311,6 +316,7 @@ async def test_disks_command():
     message = MagicMock()
     message.text = "/disks"
     message.answer = AsyncMock()
+    message.answer_chat_action = AsyncMock()
 
     await handler(message)
 

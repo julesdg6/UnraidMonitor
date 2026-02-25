@@ -1,11 +1,11 @@
 """Manage command for ignores and mutes."""
 
 import logging
-import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
+from src.utils.formatting import format_mute_expiry, safe_edit
 from src.bot.commands import format_status_summary
 from src.bot.resources_command import format_resources_summary
 from src.bot.unraid_commands import format_server_brief, format_server_detailed, format_disks
@@ -21,72 +21,30 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# TTL for pending selections (10 minutes)
-_SELECTION_TTL = 600
+
+def _build_manage_keyboard() -> InlineKeyboardMarkup:
+    """Build the main /manage dashboard keyboard."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 Status", callback_data="manage:status"),
+                InlineKeyboardButton(text="📈 Resources", callback_data="manage:resources"),
+            ],
+            [
+                InlineKeyboardButton(text="🖥️ Server", callback_data="manage:server"),
+                InlineKeyboardButton(text="💾 Disks", callback_data="manage:disks"),
+            ],
+            [
+                InlineKeyboardButton(text="📝 Manage Ignores", callback_data="manage:ignores"),
+                InlineKeyboardButton(text="🔕 Manage Mutes", callback_data="manage:mutes"),
+            ],
+        ]
+    )
 
 
-class ManageSelectionState:
-    """Shared state for manage selections across handlers."""
-
-    def __init__(self):
-        # For ignore removal: user_id -> (timestamp, container, [(index, pattern, explanation)])
-        self.pending_ignore_removal: dict[int, tuple[float, str, list[tuple[int, str, str | None]]]] = {}
-        # For mute removal: user_id -> (timestamp, list of (mute_type, key))
-        self.pending_mute_removal: dict[int, tuple[float, list[tuple[str, str]]]] = {}
-
-    def set_pending_ignore(
-        self, user_id: int, container: str, ignores: list[tuple[int, str, str | None]]
-    ) -> None:
-        self._cleanup()
-        self.pending_ignore_removal[user_id] = (time.monotonic(), container, ignores)
-
-    def get_pending_ignore(self, user_id: int) -> tuple[str, list[tuple[int, str, str | None]]] | None:
-        entry = self.pending_ignore_removal.get(user_id)
-        if entry is None:
-            return None
-        if time.monotonic() - entry[0] > _SELECTION_TTL:
-            del self.pending_ignore_removal[user_id]
-            return None
-        return entry[1], entry[2]
-
-    def clear_pending_ignore(self, user_id: int) -> None:
-        self.pending_ignore_removal.pop(user_id, None)
-
-    def set_pending_mute(self, user_id: int, mutes: list[tuple[str, str]]) -> None:
-        self._cleanup()
-        self.pending_mute_removal[user_id] = (time.monotonic(), mutes)
-
-    def get_pending_mute(self, user_id: int) -> list[tuple[str, str]] | None:
-        entry = self.pending_mute_removal.get(user_id)
-        if entry is None:
-            return None
-        if time.monotonic() - entry[0] > _SELECTION_TTL:
-            del self.pending_mute_removal[user_id]
-            return None
-        return entry[1]
-
-    def clear_pending_mute(self, user_id: int) -> None:
-        self.pending_mute_removal.pop(user_id, None)
-
-    def has_pending(self, user_id: int) -> bool:
-        now = time.monotonic()
-        ig = self.pending_ignore_removal.get(user_id)
-        if ig and now - ig[0] > _SELECTION_TTL:
-            del self.pending_ignore_removal[user_id]
-            ig = None
-        mt = self.pending_mute_removal.get(user_id)
-        if mt and now - mt[0] > _SELECTION_TTL:
-            del self.pending_mute_removal[user_id]
-            mt = None
-        return ig is not None or mt is not None
-
-    def _cleanup(self) -> None:
-        """Remove expired entries."""
-        now = time.monotonic()
-        for uid in [u for u, e in self.pending_ignore_removal.items() if now - e[0] > _SELECTION_TTL]:
-            del self.pending_ignore_removal[uid]
-        for uid in [u for u, e in self.pending_mute_removal.items() if now - e[0] > _SELECTION_TTL]:
-            del self.pending_mute_removal[uid]
+def _back_button() -> list[InlineKeyboardButton]:
+    """Return a row with a Back button pointing to manage dashboard."""
+    return [InlineKeyboardButton(text="⬅️ Back", callback_data="manage:back")]
 
 
 def manage_command(
@@ -102,28 +60,40 @@ def manage_command(
             if brief:
                 server_info = brief + "\n\n"
 
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="📊 Status", callback_data="manage:status"),
-                    InlineKeyboardButton(text="📈 Resources", callback_data="manage:resources"),
-                ],
-                [
-                    InlineKeyboardButton(text="🖥️ Server", callback_data="manage:server"),
-                    InlineKeyboardButton(text="💾 Disks", callback_data="manage:disks"),
-                ],
-                [
-                    InlineKeyboardButton(text="📝 Manage Ignores", callback_data="manage:ignores"),
-                    InlineKeyboardButton(text="🔕 Manage Mutes", callback_data="manage:mutes"),
-                ],
-            ]
-        )
+        keyboard = _build_manage_keyboard()
 
         await message.answer(
             f"{server_info}What would you like to do?",
             reply_markup=keyboard,
             parse_mode="Markdown",
         )
+
+    return handler
+
+
+def manage_back_callback(
+    system_monitor: "UnraidSystemMonitor | None" = None,
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for manage back button callback — re-renders dashboard."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        await callback.answer()
+
+        # Get brief server status if available
+        server_info = ""
+        if system_monitor:
+            brief = await format_server_brief(system_monitor)
+            if brief:
+                server_info = brief + "\n\n"
+
+        keyboard = _build_manage_keyboard()
+
+        if callback.message:
+            await callback.message.answer(
+                f"{server_info}What would you like to do?",
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
 
     return handler
 
@@ -243,6 +213,9 @@ def manage_ignores_callback(
                 )
             ])
 
+        # Add back button
+        buttons.append(_back_button())
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         await callback.answer()
@@ -255,9 +228,32 @@ def manage_ignores_callback(
     return handler
 
 
+def _build_ignore_detail_keyboard(
+    container: str,
+    ignores: list[tuple[int, str, str | None]],
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build text and keyboard for ignore detail view with delete buttons."""
+    lines = [f"📝 *Ignores for {container}:*\n"]
+    buttons = []
+
+    for i, (actual_index, pattern, explanation) in enumerate(ignores, 1):
+        display = pattern[:60] + "..." if len(pattern) > 60 else pattern
+        lines.append(f"`{i}.` {display}")
+        if explanation:
+            lines.append(f"    _{explanation}_")
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"❌ {i}. {display[:30]}",
+                callback_data=f"mdi:{container}:{actual_index}",
+            )
+        ])
+
+    buttons.append(_back_button())
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def manage_ignores_container_callback(
     ignore_manager: "IgnoreManager",
-    selection_state: "ManageSelectionState",
 ) -> Callable[[CallbackQuery], Awaitable[None]]:
     """Factory for container selection in ignore management."""
 
@@ -270,7 +266,6 @@ def manage_ignores_container_callback(
             return
 
         container = parts[2]
-        user_id = callback.from_user.id if callback.from_user else 0
 
         ignores = ignore_manager.get_runtime_ignores(container)
 
@@ -280,59 +275,120 @@ def manage_ignores_container_callback(
                 await callback.message.answer(f"No runtime ignores for {container}.")
             return
 
-        # Build numbered list
-        lines = [f"📝 *Ignores for {container}:*\n"]
-        for i, (index, pattern, explanation) in enumerate(ignores, 1):
-            display = pattern[:60] + "..." if len(pattern) > 60 else pattern
-            lines.append(f"`{i}.` {display}")
-            if explanation:
-                lines.append(f"    _{explanation}_")
-
-        lines.append("")
-        lines.append("_Type a number to remove, or 'cancel' to abort._")
-
-        # Store pending selection
-        selection_state.set_pending_ignore(user_id, container, ignores)
+        text, keyboard = _build_ignore_detail_keyboard(container, ignores)
 
         await callback.answer()
         if callback.message:
-            await callback.message.answer("\n".join(lines), parse_mode="Markdown")
+            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
     return handler
+
+
+def manage_delete_ignore_callback(
+    ignore_manager: "IgnoreManager",
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for delete ignore button callback (mdi:{container}:{index})."""
+
+    async def handler(callback: CallbackQuery) -> None:
+        data = callback.data or ""
+        # Use rsplit to handle container names with colons: mdi:{container}:{index}
+        parts = data.rsplit(":", 1)
+        if len(parts) < 2:
+            await callback.answer("Invalid callback data")
+            return
+
+        try:
+            actual_index = int(parts[1])
+        except ValueError:
+            await callback.answer("Invalid callback data")
+            return
+
+        # Extract container from prefix: "mdi:{container}"
+        prefix = parts[0]
+        if not prefix.startswith("mdi:"):
+            await callback.answer("Invalid callback data")
+            return
+        container = prefix[4:]  # Strip "mdi:"
+
+        if ignore_manager.remove_runtime_ignore(container, actual_index):
+            await callback.answer("Ignore removed")
+
+            # Re-render the ignore list for this container
+            ignores = ignore_manager.get_runtime_ignores(container)
+
+            if callback.message:
+                if not ignores:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_button()])
+                    await safe_edit(
+                        callback.message,
+                        f"All ignores cleared for {container}.",
+                        reply_markup=keyboard,
+                    )
+                else:
+                    text, keyboard = _build_ignore_detail_keyboard(container, ignores)
+                    await safe_edit(callback.message, text, reply_markup=keyboard)
+        else:
+            await callback.answer("Failed to remove ignore")
+
+    return handler
+
+
+def _build_mutes_keyboard(
+    mutes: list[tuple[str, str, str]],
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build text and keyboard for mutes view with delete buttons."""
+    lines = ["🔕 *Active Mutes:*\n"]
+    buttons = []
+
+    for i, (mute_type, key, display) in enumerate(mutes, 1):
+        lines.append(f"`{i}.` {display}")
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"❌ {display[:40]}",
+                callback_data=f"mdm:{mute_type}:{key}",
+            )
+        ])
+
+    buttons.append(_back_button())
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _collect_mutes(
+    mute_manager: "MuteManager",
+    server_mute_manager: "ServerMuteManager | None",
+    array_mute_manager: "ArrayMuteManager | None",
+) -> list[tuple[str, str, str]]:
+    """Collect all active mutes as (type, key, display) tuples."""
+    mutes: list[tuple[str, str, str]] = []
+
+    # Container mutes
+    for container, expiry in mute_manager.get_active_mutes():
+        mutes.append(("container", container, f"{container} - {format_mute_expiry(expiry)}"))
+
+    # Server mutes
+    if server_mute_manager:
+        for category, expiry in server_mute_manager.get_active_mutes():
+            if category == "server":
+                mutes.append(("server", "server", f"Server alerts - {format_mute_expiry(expiry)}"))
+
+    # Array mutes
+    if array_mute_manager:
+        expiry = array_mute_manager.get_mute_expiry()
+        if expiry:
+            mutes.append(("array", "array", f"Array alerts - {format_mute_expiry(expiry)}"))
+
+    return mutes
 
 
 def manage_mutes_callback(
     mute_manager: "MuteManager",
     server_mute_manager: "ServerMuteManager | None",
     array_mute_manager: "ArrayMuteManager | None",
-    selection_state: "ManageSelectionState",
 ) -> Callable[[CallbackQuery], Awaitable[None]]:
     """Factory for manage mutes button callback."""
 
     async def handler(callback: CallbackQuery) -> None:
-        user_id = callback.from_user.id if callback.from_user else 0
-
-        # Collect all mutes
-        mutes: list[tuple[str, str, str]] = []  # (type, key, display)
-
-        # Container mutes
-        for container, expiry in mute_manager.get_active_mutes():
-            time_str = expiry.strftime("%H:%M")
-            mutes.append(("container", container, f"{container} - until {time_str}"))
-
-        # Server mutes
-        if server_mute_manager:
-            for category, expiry in server_mute_manager.get_active_mutes():
-                if category == "server":
-                    time_str = expiry.strftime("%H:%M")
-                    mutes.append(("server", "server", f"Server alerts - until {time_str}"))
-
-        # Array mutes
-        if array_mute_manager:
-            expiry = array_mute_manager.get_mute_expiry()
-            if expiry:
-                time_str = expiry.strftime("%H:%M")
-                mutes.append(("array", "array", f"Array alerts - until {time_str}"))
+        mutes = _collect_mutes(mute_manager, server_mute_manager, array_mute_manager)
 
         if not mutes:
             await callback.answer("No active mutes")
@@ -340,100 +396,64 @@ def manage_mutes_callback(
                 await callback.message.answer("No active mutes to manage.")
             return
 
-        # Build numbered list
-        lines = ["🔕 *Active Mutes:*\n"]
-        for i, (mute_type, key, display) in enumerate(mutes, 1):
-            lines.append(f"`{i}.` {display}")
-
-        lines.append("")
-        lines.append("_Type a number to unmute, or 'cancel' to abort._")
-
-        # Store pending selection (just type and key, not display)
-        selection_state.set_pending_mute(user_id, [(t, k) for t, k, _ in mutes])
+        text, keyboard = _build_mutes_keyboard(mutes)
 
         await callback.answer()
         if callback.message:
-            await callback.message.answer("\n".join(lines), parse_mode="Markdown")
+            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
     return handler
 
 
-def manage_selection_handler(
-    ignore_manager: "IgnoreManager",
+def manage_delete_mute_callback(
     mute_manager: "MuteManager",
     server_mute_manager: "ServerMuteManager | None",
     array_mute_manager: "ArrayMuteManager | None",
-    selection_state: "ManageSelectionState",
-) -> Callable[[Message], Awaitable[None]]:
-    """Factory for manage selection follow-up handler."""
+) -> Callable[[CallbackQuery], Awaitable[None]]:
+    """Factory for delete mute button callback (mdm:{mute_type}:{key})."""
 
-    async def handler(message: Message) -> None:
-        user_id = message.from_user.id if message.from_user else 0
-        text = (message.text or "").strip().lower()
-
-        # Check for cancel
-        if text == "cancel":
-            selection_state.clear_pending_ignore(user_id)
-            selection_state.clear_pending_mute(user_id)
-            await message.answer("Cancelled.")
+    async def handler(callback: CallbackQuery) -> None:
+        data = callback.data or ""
+        # Parse mdm:{mute_type}:{key} with split(":", 2)
+        parts = data.split(":", 2)
+        if len(parts) < 3:
+            await callback.answer("Invalid callback data")
             return
 
-        # Check for pending ignore removal
-        pending_ignore = selection_state.get_pending_ignore(user_id)
-        if pending_ignore:
-            container, ignores = pending_ignore
+        mute_type = parts[1]
+        key = parts[2]
 
-            try:
-                selection = int(text)
-                if selection < 1 or selection > len(ignores):
-                    await message.answer(f"Invalid selection. Choose 1-{len(ignores)} or 'cancel'.")
-                    return
-            except ValueError:
-                await message.answer("Invalid input. Type a number or 'cancel'.")
-                return
+        success = False
+        label = ""
 
-            # Get the actual index and remove
-            actual_index, pattern, _ = ignores[selection - 1]
-            selection_state.clear_pending_ignore(user_id)
+        if mute_type == "container":
+            success = mute_manager.remove_mute(key)
+            label = key
+        elif mute_type == "server" and server_mute_manager:
+            success = server_mute_manager.unmute_server()
+            label = "Server alerts"
+        elif mute_type == "array" and array_mute_manager:
+            success = array_mute_manager.unmute_array()
+            label = "Array alerts"
 
-            if ignore_manager.remove_runtime_ignore(container, actual_index):
-                display = pattern[:50] + "..." if len(pattern) > 50 else pattern
-                await message.answer(f"✅ Removed ignore from {container}:\n`{display}`", parse_mode="Markdown")
-            else:
-                await message.answer("Failed to remove ignore.")
-            return
+        if success:
+            await callback.answer(f"Unmuted {label}")
 
-        # Check for pending mute removal
-        pending_mute = selection_state.get_pending_mute(user_id)
-        if pending_mute:
-            try:
-                selection = int(text)
-                if selection < 1 or selection > len(pending_mute):
-                    await message.answer(f"Invalid selection. Choose 1-{len(pending_mute)} or 'cancel'.")
-                    return
-            except ValueError:
-                await message.answer("Invalid input. Type a number or 'cancel'.")
-                return
+            # Re-render mutes list
+            mutes = _collect_mutes(mute_manager, server_mute_manager, array_mute_manager)
 
-            mute_type, key = pending_mute[selection - 1]
-            selection_state.clear_pending_mute(user_id)
-
-            # Remove the mute
-            if mute_type == "container":
-                if mute_manager.remove_mute(key):
-                    await message.answer(f"🔔 Unmuted *{key}*", parse_mode="Markdown")
+            if callback.message:
+                if not mutes:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_button()])
+                    await safe_edit(
+                        callback.message,
+                        "All mutes cleared.",
+                        reply_markup=keyboard,
+                    )
                 else:
-                    await message.answer("Failed to unmute.")
-            elif mute_type == "server" and server_mute_manager:
-                if server_mute_manager.unmute_server():
-                    await message.answer("🔔 *Server alerts unmuted*", parse_mode="Markdown")
-                else:
-                    await message.answer("Failed to unmute server alerts.")
-            elif mute_type == "array" and array_mute_manager:
-                if array_mute_manager.unmute_array():
-                    await message.answer("🔔 *Array alerts unmuted*", parse_mode="Markdown")
-                else:
-                    await message.answer("Failed to unmute array alerts.")
-            return
+                    text, keyboard = _build_mutes_keyboard(mutes)
+                    await safe_edit(callback.message, text, reply_markup=keyboard)
+        else:
+            await callback.answer("Failed to unmute")
 
     return handler

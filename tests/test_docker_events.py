@@ -200,3 +200,141 @@ def test_load_initial_state_fetches_when_no_containers_provided():
 
     mock_client.containers.list.assert_called_once_with(all=True)
     assert state.get("radarr") is not None
+
+
+# --- CrashTracker recovery tests ---
+
+
+def test_crash_tracker_should_send_recovery_after_crash():
+    """Recovery alert should be sent when container had recent crashes."""
+    from src.monitors.docker_events import CrashTracker
+
+    tracker = CrashTracker()
+    tracker.record_crash("app")
+
+    assert tracker.should_send_recovery("app") is True
+
+
+def test_crash_tracker_no_recovery_without_crash():
+    """No recovery alert for containers that haven't crashed."""
+    from src.monitors.docker_events import CrashTracker
+
+    tracker = CrashTracker()
+
+    assert tracker.should_send_recovery("app") is False
+
+
+def test_crash_tracker_recovery_cooldown():
+    """Recovery alert should respect cooldown."""
+    from src.monitors.docker_events import CrashTracker
+
+    tracker = CrashTracker()
+    tracker.record_crash("app")
+    tracker.record_recovery_alert("app")
+
+    # After recording recovery, crash history is cleared
+    assert tracker.should_send_recovery("app") is False
+
+    # Even if we crash again, recovery cooldown applies
+    tracker.record_crash("app")
+    assert tracker.should_send_recovery("app") is False
+
+
+def test_crash_tracker_recovery_clears_crash_history():
+    """Recording recovery should clear crash history."""
+    from src.monitors.docker_events import CrashTracker
+
+    tracker = CrashTracker()
+    tracker.record_crash("app")
+    tracker.record_crash("app")
+    assert tracker.get_crash_count("app") == 2
+
+    tracker.record_recovery_alert("app")
+    assert tracker.get_crash_count("app") == 0
+
+
+@pytest.mark.asyncio
+async def test_handle_recovery_event():
+    """Test that recovery event triggers send_recovery_alert."""
+    from unittest.mock import AsyncMock
+    from src.monitors.docker_events import DockerEventMonitor
+    from src.state import ContainerStateManager
+
+    state = ContainerStateManager()
+    mock_alert_manager = MagicMock()
+    mock_alert_manager.send_recovery_alert = AsyncMock()
+
+    monitor = DockerEventMonitor(
+        state_manager=state,
+        alert_manager=mock_alert_manager,
+    )
+
+    # Record a crash first so recovery is meaningful
+    monitor._crash_tracker.record_crash("app")
+
+    event = {
+        "Action": "start",
+        "Actor": {"Attributes": {"name": "app"}},
+        "_alert_type": "recovery",
+    }
+
+    await monitor._handle_recovery_event(event)
+
+    mock_alert_manager.send_recovery_alert.assert_called_once_with("app")
+
+
+@pytest.mark.asyncio
+async def test_handle_recovery_event_no_prior_crash():
+    """Test that recovery event is ignored if no prior crash."""
+    from unittest.mock import AsyncMock
+    from src.monitors.docker_events import DockerEventMonitor
+    from src.state import ContainerStateManager
+
+    state = ContainerStateManager()
+    mock_alert_manager = MagicMock()
+    mock_alert_manager.send_recovery_alert = AsyncMock()
+
+    monitor = DockerEventMonitor(
+        state_manager=state,
+        alert_manager=mock_alert_manager,
+    )
+
+    event = {
+        "Action": "start",
+        "Actor": {"Attributes": {"name": "app"}},
+        "_alert_type": "recovery",
+    }
+
+    await monitor._handle_recovery_event(event)
+
+    mock_alert_manager.send_recovery_alert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_recovery_event_ignored_container():
+    """Test that recovery events are ignored for ignored containers."""
+    from unittest.mock import AsyncMock
+    from src.monitors.docker_events import DockerEventMonitor
+    from src.state import ContainerStateManager
+
+    state = ContainerStateManager()
+    mock_alert_manager = MagicMock()
+    mock_alert_manager.send_recovery_alert = AsyncMock()
+
+    monitor = DockerEventMonitor(
+        state_manager=state,
+        ignored_containers=["app"],
+        alert_manager=mock_alert_manager,
+    )
+
+    monitor._crash_tracker.record_crash("app")
+
+    event = {
+        "Action": "start",
+        "Actor": {"Attributes": {"name": "app"}},
+        "_alert_type": "recovery",
+    }
+
+    await monitor._handle_recovery_event(event)
+
+    mock_alert_manager.send_recovery_alert.assert_not_called()
