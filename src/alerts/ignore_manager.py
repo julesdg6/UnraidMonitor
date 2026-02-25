@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from src.utils.formatting import strip_log_timestamps
+
 logger = logging.getLogger(__name__)
 
 # Maximum length for regex patterns to prevent complexity attacks
@@ -130,17 +132,23 @@ class IgnoreManager:
             self._save_runtime_ignores()
 
     def is_ignored(self, container: str, message: str) -> bool:
-        """Check if message should be ignored."""
+        """Check if message should be ignored.
+
+        Also checks against a timestamp-stripped version of the message so that
+        patterns created without timestamps still match log lines that have them.
+        """
         with self._lock:
             # Check config ignores (always substring, case-insensitive)
             message_lower = message.lower()
+            message_stripped_lower = strip_log_timestamps(message).lower()
             for pattern in self._config_ignores.get(container, []):
-                if pattern.lower() in message_lower:
+                pattern_lower = pattern.lower()
+                if pattern_lower in message_lower or pattern_lower in message_stripped_lower:
                     return True
 
             # Check runtime ignores (can be regex or substring)
             for ignore_pattern in self._runtime_ignores.get(container, []):
-                if ignore_pattern.matches(message):
+                if ignore_pattern.matches(message) or ignore_pattern.matches(strip_log_timestamps(message)):
                     return True
 
             return False

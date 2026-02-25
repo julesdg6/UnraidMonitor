@@ -80,6 +80,22 @@ def format_mute_expiry(expiry: datetime) -> str:
     else:
         return f"until {expiry.strftime('%b %d')} {time_str}"
 
+# Common log timestamp patterns to strip for pattern matching
+# Matches: 2026-02-25T11:55:11.548437Z, 2026-02-25 11:55:11,548, [2026-02-25T11:55:11]
+_LOG_TIMESTAMP_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.,]?\d*Z?\s*"
+)
+
+
+def strip_log_timestamps(line: str) -> str:
+    """Strip common timestamp patterns from a log line.
+
+    Removes ISO8601, Python logging, and similar timestamp formats so that
+    patterns match future errors regardless of when they occurred.
+    """
+    return _LOG_TIMESTAMP_RE.sub("", line).strip()
+
+
 # Patterns to extract container name from various alert types
 _ALERT_PATTERNS = [
     re.compile(r"ERRORS IN[:\s]+([\w.\-]+)", re.IGNORECASE),

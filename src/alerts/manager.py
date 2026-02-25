@@ -3,7 +3,7 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-from src.utils.formatting import format_bytes, format_uptime
+from src.utils.formatting import format_bytes, format_uptime, strip_log_timestamps
 from src.utils.telegram_retry import send_with_retry
 
 logger = logging.getLogger(__name__)
@@ -126,9 +126,8 @@ Latest: `{display_error}`
         # Create inline keyboard with quick action buttons
         # Telegram limits callback_data to 64 bytes (UTF-8 encoded)
         prefix = f"ignore_similar:{container_name}:"
-        prefix_bytes = len(prefix.encode("utf-8"))
-        # Truncate error preview to fit within 64 bytes total
-        error_preview = error_line
+        # Strip timestamps so more meaningful content fits in 64 bytes
+        error_preview = strip_log_timestamps(error_line)
         while len(f"{prefix}{error_preview}".encode("utf-8")) > 64:
             error_preview = error_preview[:-1]
 

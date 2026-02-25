@@ -424,6 +424,76 @@ class TestIgnoreCancelCallback:
         callback.answer.assert_called_once()
 
 
+class TestIgnoreSimilarCallback:
+    """Tests for ignore_similar_callback with timestamp stripping."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_strips_timestamps(self, tmp_path):
+        """Test that fallback substring pattern strips timestamps."""
+        from src.bot.ignore_command import ignore_similar_callback
+        from src.alerts.ignore_manager import IgnoreManager
+        from src.alerts.recent_errors import RecentErrorsBuffer
+
+        manager = IgnoreManager({}, json_path=str(tmp_path / "ignores.json"))
+        buffer = RecentErrorsBuffer()
+
+        # Add an error with a timestamp (as it would appear in the buffer)
+        full_error = "[error] 2026-02-25T11:55:11.548437Z nonode@nohost <0.3827709.0> -------- Replicator failed"
+        buffer.add("CouchDB", full_error)
+
+        # No pattern analyzer — fallback path
+        handler = ignore_similar_callback(manager, None, buffer)
+
+        # Simulate callback data with timestamp-stripped preview (as sent by manager)
+        # The preview would be: "[error] nonode@nohost <0.3827709.0" (truncated to fit 64 bytes)
+        callback = AsyncMock()
+        callback.data = "ignore_similar:CouchDB:[error] nonode@nohost <0.38"
+        callback.from_user = MagicMock()
+        callback.from_user.id = 123
+        callback.message = AsyncMock()
+
+        await handler(callback)
+
+        # Verify the stored pattern does NOT contain the timestamp
+        assert not manager.is_ignored("CouchDB", "some other random error")
+        # But it matches the error content without timestamp
+        assert manager.is_ignored("CouchDB", "[error] nonode@nohost <0.3827709.0> -------- Replicator failed")
+        # And matches future errors with different timestamps
+        assert manager.is_ignored("CouchDB", "[error] 2026-03-01T09:00:00Z nonode@nohost <0.3827709.0> -------- Replicator failed")
+
+    @pytest.mark.asyncio
+    async def test_buffer_lookup_strips_timestamps(self, tmp_path):
+        """Test that buffer lookup strips timestamps from stored errors for comparison."""
+        from src.bot.ignore_command import ignore_similar_callback
+        from src.alerts.ignore_manager import IgnoreManager
+        from src.alerts.recent_errors import RecentErrorsBuffer
+
+        manager = IgnoreManager({}, json_path=str(tmp_path / "ignores.json"))
+        buffer = RecentErrorsBuffer()
+
+        # The full error in the buffer has a timestamp
+        full_error = "[error] 2026-02-25T11:55:11.548437Z nonode@nohost connection refused"
+        buffer.add("CouchDB", full_error)
+
+        handler = ignore_similar_callback(manager, None, buffer)
+
+        # The callback preview has NO timestamp (stripped by send_log_error_alert)
+        callback = AsyncMock()
+        callback.data = "ignore_similar:CouchDB:[error] nonode@nohost conn"
+        callback.from_user = MagicMock()
+        callback.from_user.id = 123
+        callback.message = AsyncMock()
+
+        await handler(callback)
+
+        # The full error should have been found and the pattern should match
+        ignores = manager.get_all_ignores("CouchDB")
+        assert len(ignores) == 1
+        # Pattern should be timestamp-stripped
+        assert "2026-02-25" not in ignores[0][0]
+        assert "nonode@nohost" in ignores[0][0]
+
+
 class TestBuildIgnoreKeyboard:
     """Tests for _build_ignore_keyboard."""
 

@@ -4,7 +4,7 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from src.utils.formatting import extract_container_from_alert, truncate_message, safe_edit
+from src.utils.formatting import extract_container_from_alert, truncate_message, safe_edit, strip_log_timestamps
 
 if TYPE_CHECKING:
     from src.alerts.recent_errors import RecentErrorsBuffer
@@ -413,17 +413,19 @@ def ignore_similar_callback(
         _, container, error_preview = parts
 
         # Get full error from recent buffer
+        # The preview has timestamps stripped (done in send_log_error_alert),
+        # so strip timestamps from buffer entries too when comparing
         recent = recent_errors_buffer.get_recent(container)
         full_error = None
         for error in recent:
-            if error.startswith(error_preview):
+            if strip_log_timestamps(error).startswith(error_preview):
                 full_error = error
                 break
 
         if not full_error:
             full_error = error_preview
 
-        # Analyze with Haiku if available
+        # Analyze with AI if available
         if pattern_analyzer:
             result = await pattern_analyzer.analyze_error(
                 container=container,
@@ -450,9 +452,11 @@ def ignore_similar_callback(
                     await callback.answer(f"Failed: {msg}")
                 return
 
-        # Fallback to substring
-        ignore_manager.add_ignore(container, full_error)
-        display = full_error[:60] + "..." if len(full_error) > 60 else full_error
+        # Fallback to substring — strip timestamps so the pattern matches
+        # future errors regardless of when they occur
+        pattern = strip_log_timestamps(full_error)
+        ignore_manager.add_ignore(container, pattern)
+        display = pattern[:60] + "..." if len(pattern) > 60 else pattern
         if callback.message:
             await callback.message.answer(
                 f"\u2705 Ignoring: `{display}`",

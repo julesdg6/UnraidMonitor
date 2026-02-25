@@ -80,3 +80,48 @@ def test_format_uptime_days_minutes_no_hours():
 
     seconds = 1 * 86400 + 5 * 60
     assert format_uptime(seconds) == "1d 5m"
+
+
+def test_strip_log_timestamps_iso8601():
+    """Test stripping ISO8601 timestamps from log lines."""
+    from src.utils.formatting import strip_log_timestamps
+
+    line = "[error] 2026-02-25T11:55:11.548437Z nonode@nohost <0.3827709.0>"
+    result = strip_log_timestamps(line)
+    assert result == "[error] nonode@nohost <0.3827709.0>"
+
+
+def test_strip_log_timestamps_python_logging():
+    """Test stripping Python-style timestamps."""
+    from src.utils.formatting import strip_log_timestamps
+
+    line = "2026-02-25 11:55:11,548 - src.main - ERROR - something broke"
+    result = strip_log_timestamps(line)
+    assert result == "- src.main - ERROR - something broke"
+
+
+def test_strip_log_timestamps_no_timestamp():
+    """Test that lines without timestamps are unchanged."""
+    from src.utils.formatting import strip_log_timestamps
+
+    line = "[error] nonode@nohost connection refused"
+    result = strip_log_timestamps(line)
+    assert result == line
+
+
+def test_strip_log_timestamps_multiple():
+    """Test stripping multiple timestamps from a line."""
+    from src.utils.formatting import strip_log_timestamps
+
+    line = "2026-02-25T11:55:11Z start 2026-02-25T12:00:00Z end"
+    result = strip_log_timestamps(line)
+    assert result == "start end"
+
+
+def test_strip_log_timestamps_iso_no_fractional():
+    """Test stripping ISO timestamp without fractional seconds."""
+    from src.utils.formatting import strip_log_timestamps
+
+    line = "[warn] 2026-02-25T11:55:11Z some warning"
+    result = strip_log_timestamps(line)
+    assert result == "[warn] some warning"
