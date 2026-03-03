@@ -13,7 +13,7 @@ import docker
 from src.state import ContainerStateManager
 from src.services.container_control import ContainerController
 from src.services.diagnostic import DiagnosticService
-from src.utils.formatting import validate_container_name
+from src.utils.formatting import validate_container_name, escape_markdown
 from src.utils.sanitize import sanitize_logs_for_display
 
 if TYPE_CHECKING:
@@ -143,7 +143,7 @@ def logs_callback(
             # Sanitize to remove sensitive data before display
             log_text = sanitize_logs_for_display(log_text)
 
-            response = f"*Logs: {actual_name}* (last {lines} lines)\n\n```\n{log_text}\n```"
+            response = f"*Logs: {escape_markdown(actual_name)}* (last {lines} lines)\n\n```\n{log_text}\n```"
 
             if callback.message:
                 try:
@@ -225,7 +225,7 @@ def diagnose_callback(
         context.brief_summary = analysis
         diagnostic_service.store_context(user_id, context)
 
-        response = f"""*Diagnosis: {actual_name}*
+        response = f"""*Diagnosis: {escape_markdown(actual_name)}*
 
 {analysis}
 
@@ -303,7 +303,7 @@ def mute_callback(
         await callback.answer(f"Muted {actual_name} for {duration_str}")
 
         if callback.message:
-            await callback.message.answer(f"🔕 Muted *{actual_name}* for {duration_str}", parse_mode="Markdown")
+            await callback.message.answer(f"🔕 Muted *{escape_markdown(actual_name)}* for {duration_str}", parse_mode="Markdown")
 
     return handler
 
@@ -343,7 +343,7 @@ def mem_kill_callback(
         if callback.message:
             if success:
                 await callback.message.answer(
-                    f"⏹ Stopped *{container_name}* to free memory.", parse_mode="Markdown"
+                    f"⏹ Stopped *{escape_markdown(container_name)}* to free memory.", parse_mode="Markdown"
                 )
             else:
                 await callback.message.answer(

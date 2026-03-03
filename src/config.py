@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -5,6 +6,8 @@ from typing import Any
 
 import yaml
 from pydantic import field_validator
+
+logger = logging.getLogger(__name__)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,7 +26,6 @@ DEFAULT_WATCHED_CONTAINERS: list[str] = [
     "mariadb",
     "postgresql14",
     "redis",
-    "Brisbooks",
 ]
 
 # Default patterns to match as errors
@@ -200,7 +202,7 @@ class MemoryConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "MemoryConfig":
-        return cls(
+        config = cls(
             enabled=data.get("enabled", False),
             warning_threshold=max(min(data.get("warning_threshold", 90), 99), 50),
             critical_threshold=max(min(data.get("critical_threshold", 95), 100), 60),
@@ -210,6 +212,17 @@ class MemoryConfig:
             priority_containers=data.get("priority_containers", []),
             killable_containers=data.get("killable_containers", []),
         )
+        # Validate threshold ordering: critical > warning > safe
+        if not (config.critical_threshold > config.warning_threshold > config.safe_threshold):
+            logger.warning(
+                "Memory thresholds out of order (critical=%d, warning=%d, safe=%d), "
+                "using defaults (95, 90, 80)",
+                config.critical_threshold, config.warning_threshold, config.safe_threshold,
+            )
+            config.critical_threshold = 95
+            config.warning_threshold = 90
+            config.safe_threshold = 80
+        return config
 
 
 @dataclass
@@ -240,8 +253,8 @@ class UnraidConfig:
             port=data.get("port", 80),
             use_ssl=data.get("use_ssl", False),
             verify_ssl=data.get("verify_ssl", True),
-            poll_system_seconds=polling.get("system", 30),
-            poll_array_seconds=polling.get("array", 300),
+            poll_system_seconds=max(polling.get("system", 30), 10),
+            poll_array_seconds=max(polling.get("array", 300), 30),
             cpu_temp_threshold=thresholds.get("cpu_temp", 80),
             cpu_usage_threshold=thresholds.get("cpu_usage", 95),
             memory_usage_threshold=thresholds.get("memory_usage", 90),
@@ -348,7 +361,9 @@ class AppConfig:
 
         Returns YAML config if present, otherwise returns defaults.
         """
-        config = self._yaml_config.get("log_watching", DEFAULT_LOG_WATCHING)
+        config = self._yaml_config.get("log_watching")
+        if config is None:
+            config = dict(DEFAULT_LOG_WATCHING)
         # Ensure container_ignores exists
         if "container_ignores" not in config:
             config["container_ignores"] = {}

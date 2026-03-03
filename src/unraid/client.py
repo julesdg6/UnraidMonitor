@@ -127,6 +127,22 @@ class UnraidClientWrapper:
             },
         )
 
+        # Verify connectivity with a simple test query before marking connected
+        try:
+            payload = {"query": "{ info { os { hostname } } }"}
+            async with self._session.post(self._base_url, json=payload) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    logger.error(f"Unraid connectivity test failed: {response.status} - {text}")
+                    await self._session.close()
+                    self._session = None
+                    return
+        except Exception as e:
+            logger.error(f"Unraid connectivity test failed: {e}")
+            await self._session.close()
+            self._session = None
+            return
+
         self._connected = True
         logger.info(f"Connected to Unraid server at {self._host}")
 

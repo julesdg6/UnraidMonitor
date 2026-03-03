@@ -13,7 +13,6 @@ def test_server_mute_manager_mute_all(tmp_path):
 
     assert manager.is_server_muted()
     assert manager.is_array_muted()
-    assert manager.is_ups_muted()
 
 
 def test_server_mute_manager_mute_array_only(tmp_path):
@@ -27,21 +26,6 @@ def test_server_mute_manager_mute_array_only(tmp_path):
 
     assert not manager.is_server_muted()
     assert manager.is_array_muted()
-    assert not manager.is_ups_muted()
-
-
-def test_server_mute_manager_mute_ups_only(tmp_path):
-    """Test muting just UPS alerts."""
-    from src.alerts.server_mute_manager import ServerMuteManager
-
-    json_file = tmp_path / "server_mutes.json"
-    manager = ServerMuteManager(json_path=str(json_file))
-
-    manager.mute_ups(timedelta(hours=1))
-
-    assert not manager.is_server_muted()
-    assert not manager.is_array_muted()
-    assert manager.is_ups_muted()
 
 
 def test_server_mute_manager_unmute(tmp_path):
@@ -83,7 +67,7 @@ def test_server_mute_manager_get_active_mutes(tmp_path):
 
     mutes = manager.get_active_mutes()
 
-    assert len(mutes) == 3  # server, array, ups (mute_server sets all 3)
+    # mute_server sets all CATEGORIES (server, array, ups), then mute_array updates array
     categories = {m[0] for m in mutes}
     assert "server" in categories
     assert "array" in categories

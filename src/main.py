@@ -16,6 +16,7 @@ from src.monitors.memory_monitor import MemoryMonitor
 from src.monitors.resource_monitor import ResourceMonitor
 from src.alerts.manager import AlertManager, ChatIdStore
 from src.alerts.rate_limiter import RateLimiter
+from src.utils.formatting import escape_markdown
 from src.utils.telegram_retry import send_with_retry
 from src.alerts.ignore_manager import IgnoreManager
 from src.alerts.recent_errors import RecentErrorsBuffer
@@ -300,12 +301,13 @@ async def start_monitoring(
         async def on_server_alert(title: str, message: str, alert_type: str) -> None:
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-            chat_id = chat_id_store.get_chat_id()
-            if not chat_id:
+            chat_ids = chat_id_store.get_all_chat_ids()
+            if not chat_ids:
                 logger.warning("No chat ID yet, cannot send server alert")
                 return
 
-            alert_text = f"SERVER ALERT: {title}\n\n{message}"
+            safe_title = escape_markdown(title)
+            alert_text = f"🖥️ *SERVER ALERT:* {safe_title}\n\n{message}"
             keyboard = None
 
             # Enhance memory alerts with per-container stats and kill buttons
@@ -337,9 +339,13 @@ async def start_monitoring(
                 except Exception as e:
                     logger.warning(f"Failed to get container stats for server alert: {e}")
 
-            await send_with_retry(
-                bot.send_message, chat_id=chat_id, text=alert_text, reply_markup=keyboard
-            )
+            for cid in chat_ids:
+                try:
+                    await send_with_retry(
+                        bot.send_message, chat_id=cid, text=alert_text, parse_mode="Markdown", reply_markup=keyboard
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send server alert to {cid}: {e}")
 
         unraid_system_monitor = UnraidSystemMonitor(
             client=unraid_client,
@@ -447,12 +453,12 @@ async def start_monitoring(
         ) -> None:
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-            chat_id = chat_id_store.get_chat_id()
-            if not chat_id:
+            chat_ids = chat_id_store.get_all_chat_ids()
+            if not chat_ids:
                 return
 
             emoji = "🔴" if "Critical" in title else "⚠️"
-            alert_text = f"{emoji} *{title}*\n\n{message}"
+            alert_text = f"{emoji} *{escape_markdown(title)}*\n\n{message}"
             keyboard = None
 
             if alert_type in ("warning", "critical") and killable_names:
@@ -487,26 +493,33 @@ async def start_monitoring(
                         [InlineKeyboardButton(text="❌ Cancel Auto-Kill", callback_data="mem_cancel_kill")],
                     ])
 
-            await send_with_retry(
-                bot.send_message,
-                chat_id=chat_id, text=alert_text, parse_mode="Markdown", reply_markup=keyboard,
-            )
+            for cid in chat_ids:
+                try:
+                    await send_with_retry(
+                        bot.send_message,
+                        chat_id=cid, text=alert_text, parse_mode="Markdown", reply_markup=keyboard,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send memory alert to {cid}: {e}")
 
         async def on_ask_restart(container: str) -> None:
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-            chat_id = chat_id_store.get_chat_id()
-            if chat_id:
-                text = f"💾 Memory now at safe levels. Restart {container}?"
+            safe_name = escape_markdown(container)
+            for cid in chat_id_store.get_all_chat_ids():
+                text = f"💾 Memory now at safe levels. Restart *{safe_name}*?"
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(text="✅ Yes", callback_data=f"mem_restart_yes:{container}"),
                         InlineKeyboardButton(text="❌ No", callback_data=f"mem_restart_no:{container}"),
                     ]
                 ])
-                await send_with_retry(
-                    bot.send_message, chat_id=chat_id, text=text, reply_markup=keyboard
-                )
+                try:
+                    await send_with_retry(
+                        bot.send_message, chat_id=cid, text=text, parse_mode="Markdown", reply_markup=keyboard
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send restart prompt to {cid}: {e}")
 
         memory_monitor = MemoryMonitor(
             docker_client=monitor.shared_client,
@@ -620,20 +633,21 @@ async def start_monitoring(
         except Exception as e:
             logger.error(f"Failed to connect to Unraid: {e}")
             # Notify user about Unraid connection failure
-            chat_id = chat_id_store.get_chat_id()
-            if chat_id:
-                await send_with_retry(
-                    bot.send_message,
-                    chat_id=chat_id,
-                    text=f"⚠️ Failed to connect to Unraid server: {e}\n"
-                         f"Server monitoring is disabled. Check UNRAID_API_KEY and host settings.",
-                )
+            for cid in chat_id_store.get_all_chat_ids():
+                try:
+                    await send_with_retry(
+                        bot.send_message,
+                        chat_id=cid,
+                        text=f"⚠️ Failed to connect to Unraid server: {e}\n"
+                             f"Server monitoring is disabled. Check UNRAID_API_KEY and host settings.",
+                    )
+                except Exception as send_err:
+                    logger.error(f"Failed to send Unraid error to {cid}: {send_err}")
 
     logger.info("All monitors started")
 
     # H6: Send startup notification
-    chat_id = chat_id_store.get_chat_id()
-    if chat_id:
+    for cid in chat_id_store.get_all_chat_ids():
         container_count = len(state.get_all())
         watched_count = len(log_watching_config.get("containers", []))
         unraid_status = "connected" if (unraid_client and unraid_client.is_connected) else "disabled"
@@ -644,7 +658,7 @@ async def start_monitoring(
         )
         try:
             await send_with_retry(
-                bot.send_message, chat_id=chat_id, text=startup_msg, parse_mode="Markdown"
+                bot.send_message, chat_id=cid, text=startup_msg, parse_mode="Markdown"
             )
         except Exception as e:
             logger.warning(f"Failed to send startup notification: {e}")
@@ -720,12 +734,14 @@ async def main() -> None:
         async def on_wizard_complete() -> None:
             """Called when the wizard saves config.yaml for the first time."""
             logger.info("Setup wizard complete -- restarting to apply config")
-            chat_id = chat_id_store.get_chat_id()
-            if chat_id:
-                await bot.send_message(
-                    chat_id,
-                    "✅ Setup complete! Restarting to apply configuration...",
-                )
+            for cid in chat_id_store.get_all_chat_ids():
+                try:
+                    await bot.send_message(
+                        cid,
+                        "✅ Setup complete! Restarting to apply configuration...",
+                    )
+                except Exception:
+                    pass
             # Stop polling gracefully before re-exec to flush pending updates
             dp.stop_polling()
             await asyncio.sleep(1)
@@ -772,12 +788,14 @@ async def main() -> None:
             async def on_rerun_complete() -> None:
                 """Called when a /setup re-run saves updated config."""
                 logger.info("Setup wizard re-run complete -- restarting to apply config")
-                chat_id = chat_id_store.get_chat_id()
-                if chat_id:
-                    await bot.send_message(
-                        chat_id,
-                        "✅ Configuration updated! Restarting to apply changes...",
-                    )
+                for cid in chat_id_store.get_all_chat_ids():
+                    try:
+                        await bot.send_message(
+                            cid,
+                            "✅ Configuration updated! Restarting to apply changes...",
+                        )
+                    except Exception:
+                        pass
                 # Stop polling gracefully before re-exec to flush pending updates
                 dp.stop_polling()
                 await asyncio.sleep(1)
@@ -790,9 +808,11 @@ async def main() -> None:
                 await start_monitoring(config, settings, bot, dp, chat_id_store, bg)
             except Exception as e:
                 logger.error(f"Monitor startup failed: {e} -- bot still running, use /setup to reconfigure")
-                chat_id = chat_id_store.get_chat_id()
-                if chat_id:
-                    await bot.send_message(chat_id, f"⚠️ Monitor startup failed: {e}\nBot is still responsive.")
+                for cid in chat_id_store.get_all_chat_ids():
+                    try:
+                        await bot.send_message(cid, f"⚠️ Monitor startup failed: {e}\nBot is still responsive.")
+                    except Exception:
+                        pass
 
         bg.add_task(asyncio.create_task(_start_monitors_safe()))
 

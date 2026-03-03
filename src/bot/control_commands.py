@@ -6,7 +6,7 @@ from aiogram.enums import ChatAction
 
 from src.state import ContainerStateManager
 from src.services.container_control import ContainerController
-from src.utils.formatting import safe_reply, safe_edit, validate_container_name
+from src.utils.formatting import safe_reply, safe_edit, validate_container_name, escape_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def _build_confirmation(action: str, container_name: str, status: str) -> tuple[
     """Build confirmation message and inline keyboard."""
     emoji = ACTION_EMOJI.get(action, "⚠️")
 
-    text = f"""{emoji} *{action.capitalize()} {container_name}?*
+    text = f"""{emoji} *{action.capitalize()} {escape_markdown(container_name)}?*
 
 Current status: {status}"""
 
@@ -160,7 +160,7 @@ def create_ctrl_confirm_callback(
         if callback.message:
             await safe_edit(
                 callback.message,
-                f"{emoji} Executing {action} on *{container_name}*...",
+                f"{emoji} Executing {action} on *{escape_markdown(container_name)}*...",
             )
             await callback.message.answer_chat_action(ChatAction.TYPING)
 

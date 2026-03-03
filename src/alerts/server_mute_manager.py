@@ -21,10 +21,6 @@ class ServerMuteManager(BaseMuteManager):
         """Check if array/disk alerts are muted."""
         return self._is_muted("array")
 
-    def is_ups_muted(self) -> bool:
-        """Check if UPS alerts are muted."""
-        return self._is_muted("ups")
-
     def mute_server(self, duration: timedelta) -> datetime:
         """Mute all server alerts (system, array, UPS)."""
         with self._lock:
@@ -39,12 +35,6 @@ class ServerMuteManager(BaseMuteManager):
         """Mute just array/disk alerts."""
         expiry = self._add_mute("array", duration)
         logger.info(f"Muted array alerts until {expiry}")
-        return expiry
-
-    def mute_ups(self, duration: timedelta) -> datetime:
-        """Mute just UPS alerts."""
-        expiry = self._add_mute("ups", duration)
-        logger.info(f"Muted UPS alerts until {expiry}")
         return expiry
 
     def unmute_server(self) -> bool:
@@ -66,13 +56,6 @@ class ServerMuteManager(BaseMuteManager):
         removed = self._remove_mute("array")
         if removed:
             logger.info("Unmuted array alerts")
-        return removed
-
-    def unmute_ups(self) -> bool:
-        """Unmute UPS alerts."""
-        removed = self._remove_mute("ups")
-        if removed:
-            logger.info("Unmuted UPS alerts")
         return removed
 
     def get_active_mutes(self) -> list[tuple[str, datetime]]:

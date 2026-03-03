@@ -45,7 +45,8 @@ class UnraidSystemMonitor:
         self._last_alert_times: dict[str, float] = {}
         self._cached_metrics: dict | None = None
         self._cached_array: dict | None = None
-        self._cache_time: float = 0.0
+        self._metrics_cache_time: float = 0.0
+        self._array_cache_time: float = 0.0
 
     async def start(self) -> None:
         """Start the monitoring loop.
@@ -84,7 +85,7 @@ class UnraidSystemMonitor:
             return None
 
         self._cached_metrics = metrics
-        self._cache_time = time.monotonic()
+        self._metrics_cache_time = time.monotonic()
 
         # Check if muted
         if self._mute_manager.is_server_muted():
@@ -149,10 +150,13 @@ class UnraidSystemMonitor:
         Returns:
             Metrics dict or None on error.
         """
-        if self._cached_metrics is not None and (time.monotonic() - self._cache_time) < _CACHE_TTL:
+        if self._cached_metrics is not None and (time.monotonic() - self._metrics_cache_time) < _CACHE_TTL:
             return self._cached_metrics
         try:
-            return await self._client.get_system_metrics()
+            metrics = await self._client.get_system_metrics()
+            self._cached_metrics = metrics
+            self._metrics_cache_time = time.monotonic()
+            return metrics
         except Exception as e:
             logger.error(f"Failed to get system metrics: {e}")
             return None
@@ -163,12 +167,12 @@ class UnraidSystemMonitor:
         Returns:
             Array status dict or None on error.
         """
-        if self._cached_array is not None and (time.monotonic() - self._cache_time) < _CACHE_TTL:
+        if self._cached_array is not None and (time.monotonic() - self._array_cache_time) < _CACHE_TTL:
             return self._cached_array
         try:
             result = await self._client.get_array_status()
             self._cached_array = result
-            self._cache_time = time.monotonic()
+            self._array_cache_time = time.monotonic()
             return result
         except Exception as e:
             logger.error(f"Failed to get array status: {e}")

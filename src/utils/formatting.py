@@ -8,7 +8,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 # Valid Docker container name pattern (alphanumeric, dash, underscore, dot, colon)
 # Docker allows: [a-zA-Z0-9][a-zA-Z0-9_.-]* but we also allow colons for compose names
-_VALID_CONTAINER_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]*$")
+_VALID_CONTAINER_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")
 
 
 def validate_container_name(name: str) -> bool:
@@ -20,7 +20,7 @@ def validate_container_name(name: str) -> bool:
 
 def _strip_markdown(text: str) -> str:
     """Strip Markdown V1 formatting characters for plain-text fallback."""
-    return text.replace("*", "").replace("`", "").replace("_", "")
+    return text.replace("*", "").replace("`", "").replace("_", "").replace("[", "").replace("]", "")
 
 
 async def safe_reply(
@@ -194,3 +194,24 @@ def escape_markdown(text: str) -> str:
     for ch in ("\\", "`", "*", "_", "["):
         text = text.replace(ch, f"\\{ch}")
     return text
+
+
+def truncate_callback_data(prefix: str, data: str) -> str:
+    """Build callback_data that fits within Telegram's 64-byte UTF-8 limit.
+
+    Args:
+        prefix: The callback prefix including trailing separator (e.g. "restart:").
+        data: The data portion (e.g. container name).
+
+    Returns:
+        Combined string truncated to fit 64 UTF-8 bytes.
+    """
+    combined = f"{prefix}{data}"
+    encoded = combined.encode("utf-8")
+    if len(encoded) <= 64:
+        return combined
+    # Truncate data to fit, leaving room for ellipsis
+    suffix = "…"
+    max_data_bytes = 64 - len(prefix.encode("utf-8")) - len(suffix.encode("utf-8"))
+    truncated = data.encode("utf-8")[:max_data_bytes].decode("utf-8", errors="ignore")
+    return f"{prefix}{truncated}{suffix}"

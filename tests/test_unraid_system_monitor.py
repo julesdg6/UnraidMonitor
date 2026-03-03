@@ -224,7 +224,7 @@ async def test_get_current_metrics_fetches_when_cache_expired():
     await monitor.check_once()
 
     # Simulate cache expiry by rewinding the cache timestamp
-    monitor._cache_time = time.monotonic() - mod._CACHE_TTL - 1
+    monitor._metrics_cache_time = time.monotonic() - mod._CACHE_TTL - 1
 
     fresh_metrics = {"cpu_percent": 70.0, "cpu_temperature": 65.0, "memory_percent": 55.0}
     mock_client.get_system_metrics.reset_mock()
@@ -285,7 +285,7 @@ async def test_get_array_status_fetches_when_cache_expired():
     assert result1 == old_array
 
     # Expire the cache
-    monitor._cache_time = time.monotonic() - mod._CACHE_TTL - 1
+    monitor._array_cache_time = time.monotonic() - mod._CACHE_TTL - 1
 
     new_array = {"state": "Started", "disks": [{"name": "disk1"}]}
     mock_client.get_array_status.return_value = new_array
@@ -304,13 +304,13 @@ async def test_check_once_updates_cache_timestamp():
     mock_client.get_system_metrics.return_value = metrics
 
     await monitor.check_once()
-    first_cache_time = monitor._cache_time
+    first_cache_time = monitor._metrics_cache_time
 
     # Small sleep to ensure monotonic time advances
     await asyncio.sleep(0.01)
 
     await monitor.check_once()
-    second_cache_time = monitor._cache_time
+    second_cache_time = monitor._metrics_cache_time
 
     assert second_cache_time > first_cache_time
     assert monitor._cached_metrics == metrics

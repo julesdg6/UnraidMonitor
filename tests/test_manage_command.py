@@ -76,8 +76,8 @@ async def test_manage_back_callback():
     await handler(callback)
 
     callback.answer.assert_called_once()
-    callback.message.answer.assert_called_once()
-    call_args = callback.message.answer.call_args
+    callback.message.edit_text.assert_called_once()
+    call_args = callback.message.edit_text.call_args
     keyboard = call_args.kwargs.get("reply_markup")
     assert keyboard is not None
     assert keyboard.inline_keyboard[0][0].callback_data == "manage:status"
@@ -111,9 +111,9 @@ async def test_manage_ignores_shows_containers_with_back(ignore_manager):
     await handler(callback)
 
     callback.answer.assert_called_once()
-    callback.message.answer.assert_called_once()
+    callback.message.edit_text.assert_called_once()
     # Check that container buttons are shown
-    call_args = callback.message.answer.call_args
+    call_args = callback.message.edit_text.call_args
     keyboard = call_args.kwargs.get("reply_markup")
     assert keyboard is not None
 
@@ -139,7 +139,7 @@ async def test_manage_ignores_container_shows_delete_buttons(ignore_manager):
     await handler(callback)
 
     callback.answer.assert_called_once()
-    call_args = callback.message.answer.call_args
+    call_args = callback.message.edit_text.call_args
     text = call_args.args[0]
     assert "1." in text
     assert "plex" in text
@@ -242,7 +242,7 @@ async def test_manage_mutes_shows_delete_buttons(mute_manager):
     await handler(callback)
 
     callback.answer.assert_called_once()
-    call_args = callback.message.answer.call_args
+    call_args = callback.message.edit_text.call_args
     text = call_args.args[0]
     assert "1." in text
     assert "plex" in text
@@ -333,9 +333,9 @@ async def test_manage_status_callback():
     await handler(callback)
 
     callback.answer.assert_called_once()
-    callback.message.answer.assert_called_once()
+    callback.message.edit_text.assert_called_once()
     # Check status summary is shown
-    call_args = callback.message.answer.call_args
+    call_args = callback.message.edit_text.call_args
     assert "Container Status" in call_args.args[0]
 
 
@@ -350,7 +350,9 @@ async def test_manage_resources_callback_no_monitor():
     await handler(callback)
 
     callback.answer.assert_called_once()
-    callback.message.answer.assert_called_with("Resource monitoring not enabled.")
+    callback.message.edit_text.assert_called_once()
+    call_args = callback.message.edit_text.call_args
+    assert call_args.args[0] == "Resource monitoring not enabled."
 
 
 @pytest.mark.asyncio
@@ -364,7 +366,9 @@ async def test_manage_server_callback_no_monitor():
     await handler(callback)
 
     callback.answer.assert_called_once()
-    callback.message.answer.assert_called_with("\U0001f5a5\ufe0f Unraid monitoring not configured.")
+    callback.message.edit_text.assert_called_once()
+    call_args = callback.message.edit_text.call_args
+    assert call_args.args[0] == "\U0001f5a5\ufe0f Unraid monitoring not configured."
 
 
 @pytest.mark.asyncio
@@ -378,7 +382,9 @@ async def test_manage_disks_callback_no_monitor():
     await handler(callback)
 
     callback.answer.assert_called_once()
-    callback.message.answer.assert_called_with("\U0001f4be Unraid monitoring not configured.")
+    callback.message.edit_text.assert_called_once()
+    call_args = callback.message.edit_text.call_args
+    assert call_args.args[0] == "\U0001f4be Unraid monitoring not configured."
 
 
 def test_manage_command_in_help():

@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta
 
 
@@ -13,34 +14,39 @@ class RateLimiter:
         self._last_alert: dict[str, datetime] = {}
         self._suppressed_count: dict[str, int] = {}
         self._check_count: int = 0
+        self._lock = threading.Lock()
 
     def should_alert(self, container_name: str) -> bool:
         """Check if an alert should be sent for this container."""
-        self._check_count += 1
-        if self._check_count >= self._CLEANUP_EVERY_N_CHECKS:
-            self._check_count = 0
-            self.cleanup_stale()
+        with self._lock:
+            self._check_count += 1
+            if self._check_count >= self._CLEANUP_EVERY_N_CHECKS:
+                self._check_count = 0
+                self._cleanup_stale_locked()
 
-        last = self._last_alert.get(container_name)
-        if last is None:
-            return True
+            last = self._last_alert.get(container_name)
+            if last is None:
+                return True
 
-        elapsed = datetime.now() - last
-        return elapsed >= timedelta(seconds=self.cooldown_seconds)
+            elapsed = datetime.now() - last
+            return elapsed >= timedelta(seconds=self.cooldown_seconds)
 
     def record_alert(self, container_name: str) -> None:
         """Record that an alert was sent."""
-        self._last_alert[container_name] = datetime.now()
-        self._suppressed_count[container_name] = 0
+        with self._lock:
+            self._last_alert[container_name] = datetime.now()
+            self._suppressed_count[container_name] = 0
 
     def record_suppressed(self, container_name: str) -> None:
         """Record that an alert was suppressed."""
-        current = self._suppressed_count.get(container_name, 0)
-        self._suppressed_count[container_name] = current + 1
+        with self._lock:
+            current = self._suppressed_count.get(container_name, 0)
+            self._suppressed_count[container_name] = current + 1
 
     def get_suppressed_count(self, container_name: str) -> int:
         """Get count of suppressed alerts since last sent alert."""
-        return self._suppressed_count.get(container_name, 0)
+        with self._lock:
+            return self._suppressed_count.get(container_name, 0)
 
     def cleanup_stale(self) -> int:
         """Remove entries older than the stale threshold.
@@ -48,6 +54,11 @@ class RateLimiter:
         Returns:
             Number of entries removed.
         """
+        with self._lock:
+            return self._cleanup_stale_locked()
+
+    def _cleanup_stale_locked(self) -> int:
+        """Internal cleanup, must be called with lock held."""
         now = datetime.now()
         stale_keys = [
             key for key, ts in self._last_alert.items()

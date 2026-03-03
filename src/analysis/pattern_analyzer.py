@@ -120,7 +120,10 @@ class PatternAnalyzer:
                     logger.warning(f"Invalid regex from Haiku, falling back to substring: {e}")
                     result["match_type"] = "substring"
 
-            # Cache the result
+            # Cache the result (evict oldest if over limit)
+            if len(self._cache) >= 256:
+                oldest_key = next(iter(self._cache))
+                del self._cache[oldest_key]
             self._cache[cache_key] = (time.monotonic(), result)
 
             return result

@@ -124,11 +124,13 @@ class IgnoreManager:
         While inside the batch, add/remove calls skip writing to disk.
         A single save is performed when the block exits (even on error).
         """
-        self._defer_save = True
+        with self._lock:
+            self._defer_save = True
         try:
             yield
         finally:
-            self._defer_save = False
+            with self._lock:
+                self._defer_save = False
             self._save_runtime_ignores()
 
     def is_ignored(self, container: str, message: str) -> bool:
@@ -222,15 +224,16 @@ class IgnoreManager:
             source is either "config" or "runtime".
             explanation is None for config ignores.
         """
-        ignores: list[tuple[str, str, str | None]] = []
+        with self._lock:
+            ignores: list[tuple[str, str, str | None]] = []
 
-        for pattern in self._config_ignores.get(container, []):
-            ignores.append((pattern, "config", None))
+            for pattern in self._config_ignores.get(container, []):
+                ignores.append((pattern, "config", None))
 
-        for ignore_pattern in self._runtime_ignores.get(container, []):
-            ignores.append((ignore_pattern.pattern, "runtime", ignore_pattern.explanation))
+            for ignore_pattern in self._runtime_ignores.get(container, []):
+                ignores.append((ignore_pattern.pattern, "runtime", ignore_pattern.explanation))
 
-        return ignores
+            return ignores
 
     def get_runtime_ignores(self, container: str) -> list[tuple[int, str, str | None]]:
         """Get runtime ignores for a container as (index, pattern, explanation) tuples.
@@ -239,12 +242,13 @@ class IgnoreManager:
             List of tuples containing (index, pattern, explanation).
             Index is the position in the runtime ignores list.
         """
-        ignores: list[tuple[int, str, str | None]] = []
+        with self._lock:
+            ignores: list[tuple[int, str, str | None]] = []
 
-        for i, ignore_pattern in enumerate(self._runtime_ignores.get(container, [])):
-            ignores.append((i, ignore_pattern.pattern, ignore_pattern.explanation))
+            for i, ignore_pattern in enumerate(self._runtime_ignores.get(container, [])):
+                ignores.append((i, ignore_pattern.pattern, ignore_pattern.explanation))
 
-        return ignores
+            return ignores
 
     def get_containers_with_runtime_ignores(self) -> list[str]:
         """Get list of containers that have runtime ignores.
@@ -252,11 +256,12 @@ class IgnoreManager:
         Returns:
             List of container names with at least one runtime ignore.
         """
-        return [
-            container
-            for container, patterns in self._runtime_ignores.items()
-            if patterns
-        ]
+        with self._lock:
+            return [
+                container
+                for container, patterns in self._runtime_ignores.items()
+                if patterns
+            ]
 
     def remove_runtime_ignore(self, container: str, index: int) -> bool:
         """Remove a runtime ignore by index.

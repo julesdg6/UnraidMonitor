@@ -199,6 +199,11 @@ class NLProcessor:
             )
 
         # Per-user lock prevents concurrent requests from garbling conversation history
+        # Periodically clean up unlocked entries to prevent unbounded growth
+        if len(self._user_locks) > 100:
+            stale = [uid for uid, lock in self._user_locks.items() if not lock.locked()]
+            for uid in stale:
+                del self._user_locks[uid]
         if user_id not in self._user_locks:
             self._user_locks[user_id] = asyncio.Lock()
 

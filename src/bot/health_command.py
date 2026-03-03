@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Version is updated manually or via CI
-BOT_VERSION = "0.9.0"
+BOT_VERSION = "0.9.1"
 
 
 def _format_health_uptime(start_time: datetime) -> str:

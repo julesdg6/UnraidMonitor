@@ -2,6 +2,45 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.9.1] - 2026-03-03
+
+### Security
+- **Pinned Docker base image** - `python:3.11-slim` now uses SHA256 digest to prevent supply chain attacks
+- **Fixed overly permissive umask** - Changed from `0000` to `0022` in entrypoint.sh so created files are no longer world-writable
+- **Moved AI SDKs to optional deps** - `anthropic` and `openai` are now optional dependencies under `[ai]` extra, reducing attack surface for non-AI deployments
+- **Escape Markdown in container names** - All alert and command messages now use `escape_markdown()` for container names, preventing Telegram formatting injection from specially-crafted names
+- **Callback data truncation** - `truncate_callback_data()` enforces Telegram's 64-byte limit on inline button callback data, preventing silent failures with long container names
+
+### Fixed
+- **Multi-user alert delivery** - Alerts are now sent to all authorized users instead of only the most recently active one. Affects server alerts, memory alerts, restart prompts, startup notifications, and wizard completion messages
+- **Thread-safe RateLimiter** - Added `threading.Lock` to prevent race conditions between Docker event thread and async loop
+- **Thread-safe IgnoreManager reads** - `get_all_ignores()`, `get_runtime_ignores()`, and `get_containers_with_runtime_ignores()` now hold the lock during reads; `defer_save` flag set under lock
+- **Dirty flag on mute expiry** - `BaseMuteManager` now sets `_dirty = True` when cleaning expired mutes, ensuring the change is persisted
+- **Memory threshold validation** - `MemoryConfig.from_dict()` validates that critical > warning > safe thresholds and falls back to defaults if misordered
+- **Polling interval clamping** - Unraid system poll minimum 10s, array poll minimum 30s; prevents tight loops from misconfiguration
+- **DEFAULT_LOG_WATCHING mutation** - Fixed shared mutable default dict being modified at runtime; now copies before use
+- **Manage dashboard uses safe\_edit** - All manage sub-view callbacks now use `safe_edit()` instead of raw `answer()`, preventing Markdown parse failures
+- **Unraid connectivity verification** - `UnraidClientWrapper.connect()` now verifies the server is reachable before setting `_connected = True`
+- **Server alert formatting** - Server alerts now use `parse_mode="Markdown"` with `escape_markdown()` consistently
+- **Dynamic cooldown text** - Error alerts show the configured cooldown duration instead of hardcoded "15 minutes"
+- **Removed "Brisbooks" from defaults** - Removed author-specific container from default watched list
+
+### Changed
+- **Duration parser supports days** - Mute duration parser now accepts `"d"` suffix (e.g., `3d` for 3 days) in addition to `"m"` and `"h"`
+- **PatternAnalyzer cache bounded** - LRU-style eviction at 256 entries prevents unbounded memory growth
+- **NLProcessor user locks cleanup** - Stale (unlocked) entries pruned when dict exceeds 100 entries
+- **Split SystemMonitor cache timestamps** - Each metric type (cpu, memory, temp) has its own cache timestamp for independent refresh
+- **OpenAI/Ollama env vars in docker-compose** - Added `OPENAI_API_KEY` and `OLLAMA_HOST` to docker-compose.yml environment
+
+### Removed
+- Dead UPS mute methods (`mute_ups`, `unmute_ups`, `is_ups_muted`) from `ServerMuteManager` — no UPS monitoring exists
+
+### Added
+- `escape_markdown()` utility in formatting.py for safe Telegram message content
+- `truncate_callback_data()` utility for safe inline button callback data
+- 132 new tests: `test_formatting_utils.py` (53), `test_per_user_rate_limiter.py` (10), expanded `test_sanitize.py` (14 new), expanded `test_unraid_client.py` and `test_unraid_system_monitor.py`
+- Total test count: 1020 (up from 888)
+
 ## [0.9.0] - 2026-02-25
 
 ### Added

@@ -23,7 +23,7 @@ groupmod -o -g "$PGID" appuser 2>/dev/null || true
 
 # Set permissive umask so created files (config.yaml, mute/ignore JSON)
 # are readable/writable by group and others (ownership handles access control)
-umask 0000
+umask 0022
 
 # Drop privileges and run as appuser
 exec gosu appuser "$@"

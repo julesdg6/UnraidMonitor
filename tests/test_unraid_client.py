@@ -3,6 +3,30 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 
 
+def _make_ok_response():
+    """Create a mock response with status 200 for connectivity test."""
+    resp = AsyncMock()
+    resp.status = 200
+    resp.json = AsyncMock(return_value={"data": {"info": {"os": {"hostname": "Tower"}}}})
+    return resp
+
+
+def _make_post_context(response):
+    """Wrap a mock response in an async context manager for session.post()."""
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=response)
+    ctx.__aexit__ = AsyncMock(return_value=None)
+    return ctx
+
+
+def _make_session_with_ok_connect():
+    """Create a mock session that passes the connectivity test in connect()."""
+    mock_session = AsyncMock()
+    ok_resp = _make_ok_response()
+    mock_session.post = MagicMock(return_value=_make_post_context(ok_resp))
+    return mock_session
+
+
 @pytest.mark.asyncio
 async def test_unraid_client_connect():
     """Test UnraidClientWrapper connects successfully."""
@@ -10,7 +34,7 @@ async def test_unraid_client_connect():
 
     with patch("src.unraid.client.aiohttp.ClientSession") as MockSession, \
          patch("src.unraid.client.aiohttp.TCPConnector"):
-        mock_session = MagicMock()
+        mock_session = _make_session_with_ok_connect()
         MockSession.return_value = mock_session
 
         wrapper = UnraidClientWrapper(
@@ -32,7 +56,7 @@ async def test_unraid_client_disconnect():
 
     with patch("src.unraid.client.aiohttp.ClientSession") as MockSession, \
          patch("src.unraid.client.aiohttp.TCPConnector"):
-        mock_session = AsyncMock()
+        mock_session = _make_session_with_ok_connect()
         MockSession.return_value = mock_session
 
         wrapper = UnraidClientWrapper(
@@ -54,7 +78,7 @@ async def test_unraid_client_get_system_metrics():
 
     with patch("src.unraid.client.aiohttp.ClientSession") as MockSession, \
          patch("src.unraid.client.aiohttp.TCPConnector"):
-        # Mock response for combined system metrics query
+        # Mock response for both connectivity test and system metrics query
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value={
@@ -73,12 +97,8 @@ async def test_unraid_client_get_system_metrics():
             }
         })
 
-        mock_context = AsyncMock()
-        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context.__aexit__ = AsyncMock(return_value=None)
-
         mock_session = MagicMock()
-        mock_session.post = MagicMock(return_value=mock_context)
+        mock_session.post = MagicMock(return_value=_make_post_context(mock_response))
         MockSession.return_value = mock_session
 
         wrapper = UnraidClientWrapper(
@@ -118,7 +138,7 @@ async def test_unraid_client_is_connected_property():
 
     with patch("src.unraid.client.aiohttp.ClientSession") as MockSession, \
          patch("src.unraid.client.aiohttp.TCPConnector"):
-        mock_session = AsyncMock()
+        mock_session = _make_session_with_ok_connect()
         MockSession.return_value = mock_session
 
         wrapper = UnraidClientWrapper(
@@ -156,7 +176,7 @@ async def test_unraid_client_get_array_status():
         })
 
         mock_session = MagicMock()
-        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response), __aexit__=AsyncMock()))
+        mock_session.post = MagicMock(return_value=_make_post_context(mock_response))
         MockSession.return_value = mock_session
 
         wrapper = UnraidClientWrapper(
@@ -180,7 +200,7 @@ async def test_unraid_client_verify_ssl_false():
          patch("src.unraid.client.ssl.create_default_context") as mock_ssl:
         mock_ssl_context = MagicMock()
         mock_ssl.return_value = mock_ssl_context
-        mock_session = MagicMock()
+        mock_session = _make_session_with_ok_connect()
         MockSession.return_value = mock_session
 
         wrapper = UnraidClientWrapper(
@@ -254,22 +274,21 @@ async def test_unraid_client_graphql_error():
             api_key="test-key",
         )
 
-        # Create a real session but mock the post method
         with patch("src.unraid.client.aiohttp.ClientSession") as MockSession:
             mock_session = AsyncMock()
 
-            # Mock response with GraphQL error
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value={
+            # First call (connect test) returns OK, second call (query) returns error
+            ok_response = _make_ok_response()
+            error_response = AsyncMock()
+            error_response.status = 200
+            error_response.json = AsyncMock(return_value={
                 "errors": [{"message": "Query failed"}]
             })
 
-            # Create async context manager for post
-            mock_context = AsyncMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_context.__aexit__ = AsyncMock(return_value=None)
-            mock_session.post = MagicMock(return_value=mock_context)
+            mock_session.post = MagicMock(side_effect=[
+                _make_post_context(ok_response),
+                _make_post_context(error_response),
+            ])
 
             MockSession.return_value = mock_session
 
@@ -295,16 +314,16 @@ async def test_unraid_client_http_error():
         with patch("src.unraid.client.aiohttp.ClientSession") as MockSession:
             mock_session = AsyncMock()
 
-            # Mock response with HTTP error
-            mock_response = AsyncMock()
-            mock_response.status = 400
-            mock_response.text = AsyncMock(return_value="Bad Request")
+            # First call (connect test) returns OK, second call (query) returns error
+            ok_response = _make_ok_response()
+            error_response = AsyncMock()
+            error_response.status = 400
+            error_response.text = AsyncMock(return_value="Bad Request")
 
-            # Create async context manager for post
-            mock_context = AsyncMock()
-            mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_context.__aexit__ = AsyncMock(return_value=None)
-            mock_session.post = MagicMock(return_value=mock_context)
+            mock_session.post = MagicMock(side_effect=[
+                _make_post_context(ok_response),
+                _make_post_context(error_response),
+            ])
 
             MockSession.return_value = mock_session
 
@@ -314,3 +333,49 @@ async def test_unraid_client_http_error():
                 await wrapper.get_system_metrics()
 
             assert "400" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_unraid_client_connect_fails_on_bad_status():
+    """Test connect() does not set connected on non-200 response."""
+    from src.unraid.client import UnraidClientWrapper
+
+    with patch("src.unraid.client.aiohttp.ClientSession") as MockSession, \
+         patch("src.unraid.client.aiohttp.TCPConnector"):
+        fail_response = AsyncMock()
+        fail_response.status = 500
+        fail_response.text = AsyncMock(return_value="Server Error")
+
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(return_value=_make_post_context(fail_response))
+        MockSession.return_value = mock_session
+
+        wrapper = UnraidClientWrapper(
+            host="192.168.1.100",
+            api_key="test-key",
+        )
+
+        await wrapper.connect()
+
+        assert wrapper.is_connected is False
+
+
+@pytest.mark.asyncio
+async def test_unraid_client_connect_fails_on_exception():
+    """Test connect() handles exceptions during connectivity test."""
+    from src.unraid.client import UnraidClientWrapper
+
+    with patch("src.unraid.client.aiohttp.ClientSession") as MockSession, \
+         patch("src.unraid.client.aiohttp.TCPConnector"):
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(side_effect=aiohttp.ClientError("Connection refused"))
+        MockSession.return_value = mock_session
+
+        wrapper = UnraidClientWrapper(
+            host="192.168.1.100",
+            api_key="test-key",
+        )
+
+        await wrapper.connect()
+
+        assert wrapper.is_connected is False

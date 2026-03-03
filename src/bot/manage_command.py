@@ -5,7 +5,7 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from src.utils.formatting import format_mute_expiry, safe_edit
+from src.utils.formatting import format_mute_expiry, safe_edit, escape_markdown, safe_reply
 from src.bot.commands import format_status_summary
 from src.bot.resources_command import format_resources_summary
 from src.bot.unraid_commands import format_server_brief, format_server_detailed, format_disks
@@ -89,10 +89,10 @@ def manage_back_callback(
         keyboard = _build_manage_keyboard()
 
         if callback.message:
-            await callback.message.answer(
+            await safe_edit(
+                callback.message,
                 f"{server_info}What would you like to do?",
                 reply_markup=keyboard,
-                parse_mode="Markdown",
             )
 
     return handler
@@ -108,7 +108,7 @@ def manage_status_callback(
 
         summary = format_status_summary(state)
         if callback.message:
-            await callback.message.answer(summary, parse_mode="Markdown")
+            await safe_edit(callback.message, summary)
 
     return handler
 
@@ -123,16 +123,16 @@ def manage_resources_callback(
 
         if not resource_monitor:
             if callback.message:
-                await callback.message.answer("Resource monitoring not enabled.")
+                await safe_edit(callback.message, "Resource monitoring not enabled.")
             return
 
         summary = await format_resources_summary(resource_monitor)
         if summary:
             if callback.message:
-                await callback.message.answer(summary, parse_mode="Markdown")
+                await safe_edit(callback.message, summary)
         else:
             if callback.message:
-                await callback.message.answer("📊 No running containers found")
+                await safe_edit(callback.message, "📊 No running containers found")
 
     return handler
 
@@ -147,16 +147,16 @@ def manage_server_callback(
 
         if not system_monitor:
             if callback.message:
-                await callback.message.answer("🖥️ Unraid monitoring not configured.")
+                await safe_edit(callback.message, "🖥️ Unraid monitoring not configured.")
             return
 
         response = await format_server_detailed(system_monitor)
         if response:
             if callback.message:
-                await callback.message.answer(response, parse_mode="Markdown")
+                await safe_edit(callback.message, response)
         else:
             if callback.message:
-                await callback.message.answer("🖥️ Unraid server unavailable.")
+                await safe_edit(callback.message, "🖥️ Unraid server unavailable.")
 
     return handler
 
@@ -171,16 +171,16 @@ def manage_disks_callback(
 
         if not system_monitor:
             if callback.message:
-                await callback.message.answer("💾 Unraid monitoring not configured.")
+                await safe_edit(callback.message, "💾 Unraid monitoring not configured.")
             return
 
         response = await format_disks(system_monitor)
         if response:
             if callback.message:
-                await callback.message.answer(response, parse_mode="Markdown")
+                await safe_edit(callback.message, response)
         else:
             if callback.message:
-                await callback.message.answer("💾 Disk status unavailable.")
+                await safe_edit(callback.message, "💾 Disk status unavailable.")
 
     return handler
 
@@ -196,9 +196,10 @@ def manage_ignores_callback(
         if not containers:
             await callback.answer("No runtime ignores to manage")
             if callback.message:
-                await callback.message.answer(
+                await safe_edit(
+                    callback.message,
                     "No runtime ignores configured.\n\n"
-                    "Use the 🔇 Ignore Similar button on alerts or /ignore to add some."
+                    "Use the 🔇 Ignore Similar button on alerts or /ignore to add some.",
                 )
             return
 
@@ -220,7 +221,8 @@ def manage_ignores_callback(
 
         await callback.answer()
         if callback.message:
-            await callback.message.answer(
+            await safe_edit(
+                callback.message,
                 "Select a container to manage ignores:",
                 reply_markup=keyboard,
             )
@@ -233,7 +235,7 @@ def _build_ignore_detail_keyboard(
     ignores: list[tuple[int, str, str | None]],
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Build text and keyboard for ignore detail view with delete buttons."""
-    lines = [f"📝 *Ignores for {container}:*\n"]
+    lines = [f"📝 *Ignores for {escape_markdown(container)}:*\n"]
     buttons = []
 
     for i, (actual_index, pattern, explanation) in enumerate(ignores, 1):
@@ -272,14 +274,14 @@ def manage_ignores_container_callback(
         if not ignores:
             await callback.answer("No ignores found")
             if callback.message:
-                await callback.message.answer(f"No runtime ignores for {container}.")
+                await safe_edit(callback.message, f"No runtime ignores for {escape_markdown(container)}.")
             return
 
         text, keyboard = _build_ignore_detail_keyboard(container, ignores)
 
         await callback.answer()
         if callback.message:
-            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+            await safe_edit(callback.message, text, reply_markup=keyboard)
 
     return handler
 
@@ -321,7 +323,7 @@ def manage_delete_ignore_callback(
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_button()])
                     await safe_edit(
                         callback.message,
-                        f"All ignores cleared for {container}.",
+                        f"All ignores cleared for {escape_markdown(container)}.",
                         reply_markup=keyboard,
                     )
                 else:
@@ -393,14 +395,14 @@ def manage_mutes_callback(
         if not mutes:
             await callback.answer("No active mutes")
             if callback.message:
-                await callback.message.answer("No active mutes to manage.")
+                await safe_edit(callback.message, "No active mutes to manage.")
             return
 
         text, keyboard = _build_mutes_keyboard(mutes)
 
         await callback.answer()
         if callback.message:
-            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+            await safe_edit(callback.message, text, reply_markup=keyboard)
 
     return handler
 

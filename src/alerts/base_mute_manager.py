@@ -43,6 +43,7 @@ class BaseMuteManager:
             expiry = self._mutes[key]
             if datetime.now() >= expiry:
                 del self._mutes[key]
+                self._dirty = True
                 return False
 
             return True

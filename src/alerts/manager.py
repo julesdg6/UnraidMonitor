@@ -3,7 +3,7 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-from src.utils.formatting import format_bytes, format_uptime, strip_log_timestamps
+from src.utils.formatting import format_bytes, format_uptime, strip_log_timestamps, escape_markdown, truncate_callback_data
 from src.utils.telegram_retry import send_with_retry
 
 logger = logging.getLogger(__name__)
@@ -31,10 +31,11 @@ class ChatIdStore:
 class AlertManager:
     """Manages sending alerts to Telegram."""
 
-    def __init__(self, bot: Bot, chat_id: int, error_display_max_chars: int = 200):
+    def __init__(self, bot: Bot, chat_id: int, error_display_max_chars: int = 200, cooldown_seconds: int = 900):
         self.bot = bot
         self.chat_id = chat_id
         self.error_display_max_chars = error_display_max_chars
+        self.cooldown_seconds = cooldown_seconds
 
     async def send_crash_alert(
         self,
@@ -56,14 +57,16 @@ class AlertManager:
         elif exit_code == 139:
             exit_reason = " (segfault)"
 
+        safe_name = escape_markdown(container_name)
+
         if restart_loop_count:
-            text = f"""🔄🔴 *RESTART LOOP:* {container_name}
+            text = f"""🔄🔴 *RESTART LOOP:* {safe_name}
 
 Crashed {restart_loop_count} times in the last 10 minutes!
 Exit code: {exit_code}{exit_reason}
 Image: `{image}`"""
         else:
-            text = f"""🔴 *CONTAINER CRASHED:* {container_name}
+            text = f"""🔴 *CONTAINER CRASHED:* {safe_name}
 
 Exit code: {exit_code}{exit_reason}
 Image: `{image}`
@@ -73,13 +76,13 @@ Uptime: {uptime_str}"""
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="🔄 Restart", callback_data=f"restart:{container_name}"),
-                    InlineKeyboardButton(text="📋 Logs", callback_data=f"logs:{container_name}:50"),
-                    InlineKeyboardButton(text="🔍 Diagnose", callback_data=f"diagnose:{container_name}"),
+                    InlineKeyboardButton(text="🔄 Restart", callback_data=truncate_callback_data("restart:", container_name)),
+                    InlineKeyboardButton(text="📋 Logs", callback_data=truncate_callback_data("logs:", f"{container_name}:50")),
+                    InlineKeyboardButton(text="🔍 Diagnose", callback_data=truncate_callback_data("diagnose:", container_name)),
                 ],
                 [
-                    InlineKeyboardButton(text="🔕 Mute 1h", callback_data=f"mute:{container_name}:60"),
-                    InlineKeyboardButton(text="🔕 Mute 24h", callback_data=f"mute:{container_name}:1440"),
+                    InlineKeyboardButton(text="🔕 Mute 1h", callback_data=truncate_callback_data("mute:", f"{container_name}:60")),
+                    InlineKeyboardButton(text="🔕 Mute 24h", callback_data=truncate_callback_data("mute:", f"{container_name}:1440")),
                 ],
             ]
         )
@@ -110,12 +113,15 @@ Uptime: {uptime_str}"""
         if len(error_line) > self.error_display_max_chars:
             display_error = error_line[:self.error_display_max_chars] + "..."
 
+        cooldown_str = self._format_duration(self.cooldown_seconds)
+        safe_name = escape_markdown(container_name)
+
         if total_errors > 1:
-            count_text = f"Found {total_errors} errors in the last 15 minutes"
+            count_text = f"Found {total_errors} errors in the last {cooldown_str}"
         else:
             count_text = "New error detected"
 
-        text = f"""⚠️ *ERRORS IN:* {container_name}
+        text = f"""⚠️ *ERRORS IN:* {safe_name}
 
 {count_text}
 
@@ -125,21 +131,18 @@ Latest: `{display_error}`
 
         # Create inline keyboard with quick action buttons
         # Telegram limits callback_data to 64 bytes (UTF-8 encoded)
-        prefix = f"ignore_similar:{container_name}:"
-        # Strip timestamps so more meaningful content fits in 64 bytes
         error_preview = strip_log_timestamps(error_line)
-        while len(f"{prefix}{error_preview}".encode("utf-8")) > 64:
-            error_preview = error_preview[:-1]
+        ignore_cb = truncate_callback_data(f"ignore_similar:{container_name}:", error_preview)
 
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="🔇 Ignore Similar", callback_data=f"{prefix}{error_preview}"),
-                    InlineKeyboardButton(text="🔕 Mute 1h", callback_data=f"mute:{container_name}:60"),
+                    InlineKeyboardButton(text="🔇 Ignore Similar", callback_data=ignore_cb),
+                    InlineKeyboardButton(text="🔕 Mute 1h", callback_data=truncate_callback_data("mute:", f"{container_name}:60")),
                 ],
                 [
-                    InlineKeyboardButton(text="📋 Logs", callback_data=f"logs:{container_name}:50"),
-                    InlineKeyboardButton(text="🔍 Diagnose", callback_data=f"diagnose:{container_name}"),
+                    InlineKeyboardButton(text="📋 Logs", callback_data=truncate_callback_data("logs:", f"{container_name}:50")),
+                    InlineKeyboardButton(text="🔍 Diagnose", callback_data=truncate_callback_data("diagnose:", container_name)),
                 ],
             ]
         )
@@ -195,7 +198,9 @@ Latest: `{display_error}`
             primary += f"\n        {memory_display} / {memory_limit_display} limit"
             secondary = f"CPU: {cpu_percent}% (normal)"
 
-        text = f"""⚠️ *{title}:* {container_name}
+        safe_name = escape_markdown(container_name)
+
+        text = f"""⚠️ *{title}:* {safe_name}
 
 {primary}
 Exceeded for: {duration_str}
@@ -206,12 +211,12 @@ Exceeded for: {duration_str}
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="📋 Logs", callback_data=f"logs:{container_name}:50"),
-                    InlineKeyboardButton(text="🔍 Diagnose", callback_data=f"diagnose:{container_name}"),
+                    InlineKeyboardButton(text="📋 Logs", callback_data=truncate_callback_data("logs:", f"{container_name}:50")),
+                    InlineKeyboardButton(text="🔍 Diagnose", callback_data=truncate_callback_data("diagnose:", container_name)),
                 ],
                 [
-                    InlineKeyboardButton(text="🔕 Mute 1h", callback_data=f"mute:{container_name}:60"),
-                    InlineKeyboardButton(text="🔕 Mute 24h", callback_data=f"mute:{container_name}:1440"),
+                    InlineKeyboardButton(text="🔕 Mute 1h", callback_data=truncate_callback_data("mute:", f"{container_name}:60")),
+                    InlineKeyboardButton(text="🔕 Mute 24h", callback_data=truncate_callback_data("mute:", f"{container_name}:1440")),
                 ],
             ]
         )
@@ -230,7 +235,7 @@ Exceeded for: {duration_str}
 
     async def send_recovery_alert(self, container_name: str) -> None:
         """Send a brief recovery notification when a crashed container starts."""
-        text = f"✅ *{container_name}* recovered and is running again."
+        text = f"✅ *{escape_markdown(container_name)}* recovered and is running again."
 
         try:
             await send_with_retry(
