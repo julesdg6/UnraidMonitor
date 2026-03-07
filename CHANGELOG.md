@@ -2,6 +2,38 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.9.2] - 2026-03-07
+
+### Added
+- **Health check alerts** - Detects containers transitioning to unhealthy via Docker health_status events, sends alert with Restart/Logs/Diagnose buttons
+- **Quick-action buttons on /status** - Single container detail view now shows Logs, Diagnose, Restart inline buttons
+- **Mute expiry notifications** - Telegram notification sent when a mute expires, via periodic 5-minute flush task
+- **Log drop metrics in /health** - Shows total dropped log lines when log storm protection activates
+- **Alert queue depth in /health** - Shows pending alert count when alerts are queued before first /start
+- **Mute non-existent warning** - Warns when muting a container name that doesn't match any known container
+- **AlertManagerProxy tests** - 7 new tests covering proxy queuing, multi-user delivery, flush, and shutdown
+
+### Fixed
+- **Disk size unit conversion** - Fixed decimal-to-binary conversion for disk sizes (now uses 1024^3 for TiB)
+- **IgnoreManager batch_updates race** - Moved `_save_runtime_ignores()` inside lock to prevent concurrent modification
+- **Mute file permissions** - Changed from 0o666 to 0o644 for JSON persistence files
+- **Defensive state copies** - `ContainerStateManager.get()`, `get_all()`, `find_by_name()` now return copies via `dataclasses.replace()`
+- **Naive datetime consistency** - Strips timezone info when loading mute expiry times to prevent comparison errors
+- **Graceful shutdown for alert queue** - Sentinel-based drain in DockerEventMonitor prevents alert loss during shutdown
+- **Unraid auto-reconnect** - GraphQL client reconnects automatically on connection loss
+- **Log drop rate limiting** - Warns once per 60s per container instead of flooding logs during storms
+- **Network reconnect tracking** - ContainerController tracks failed network reconnections and appends warning to user message
+- **Memory monitor decline fix** - Only resets `_restart_prompted` when no killed containers remain
+- **PatternAnalyzer eviction** - Cache now evicts oldest entry by timestamp instead of arbitrary key
+- **NL tool line clamping** - Line counts clamped to valid range `max(1, min(...))`
+- **Config threshold clamping** - Unraid config values clamped to valid ranges at load time
+
+### Changed
+- **Removed dead code** - Removed backward-compat `handle_anthropic_error` alias and unreachable `return None` in telegram_retry
+- **Narrowed exception catches** - `ignore_command.py` catches `TelegramBadRequest` specifically instead of broad `Exception`
+- **Removed UPS from server mute categories** - No UPS monitoring exists; `CATEGORIES` now only `("server", "array")`
+- **OpenAI version constraint** - Aligned to `>=1.50.0,<2.0.0`
+
 ## [0.9.1] - 2026-03-03
 
 ### Security
