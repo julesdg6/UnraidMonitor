@@ -389,7 +389,16 @@ class ResourceMonitor:
             for violation in sustained:
                 await self._send_alert(stats, violation)
 
-        # Remove violations for containers that no longer exist
-        stale = [name for name in self._violations if name not in active_names]
+        # Mark last-seen time and evict violations for containers gone > 10 minutes
+        if not hasattr(self, "_violation_last_seen"):
+            self._violation_last_seen: dict[str, float] = {}
+        for name in active_names:
+            self._violation_last_seen[name] = now
+        stale = [
+            name for name in self._violations
+            if name not in active_names
+            and now - self._violation_last_seen.get(name, 0) > 600
+        ]
         for name in stale:
             del self._violations[name]
+            self._violation_last_seen.pop(name, None)

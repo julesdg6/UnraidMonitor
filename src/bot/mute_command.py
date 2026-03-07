@@ -88,8 +88,12 @@ def mute_command(
                 )
                 return
             else:
-                # Accept anyway for flexibility
+                # Accept but warn — may be a typo or a container that starts later
                 container = container_query
+                await message.answer(
+                    f"No running container matches '{container_query}'. "
+                    f"Muting the name anyway (will apply if it starts later)."
+                )
 
         if not container:
             await message.answer("Could not determine container.")

@@ -60,9 +60,10 @@ def format_mute_expiry(expiry: datetime) -> str:
     - Tomorrow: "until tomorrow 14:30"
     - Further: "until Feb 26 14:30"
     """
+    import os
     from zoneinfo import ZoneInfo
 
-    tz = ZoneInfo("Europe/London")
+    tz = ZoneInfo(os.environ.get("TZ", "Europe/London"))
     now = datetime.now(tz)
 
     # Make expiry timezone-aware if naive

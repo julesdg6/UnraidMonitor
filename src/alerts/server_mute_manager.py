@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class ServerMuteManager(BaseMuteManager):
     """Manages mutes for Unraid server alerts (separate from container mutes)."""
 
-    CATEGORIES = ("server", "array", "ups")
+    CATEGORIES = ("server", "array")
 
     def is_server_muted(self) -> bool:
         """Check if server (system) alerts are muted."""

@@ -283,7 +283,7 @@ class NLToolExecutor:
     async def _tool_get_container_logs(self, args: dict[str, Any]) -> str:
         """Get recent logs from a container."""
         name = args.get("name", "")
-        lines = min(args.get("lines", 50), 200)
+        lines = max(1, min(args.get("lines", 50), 200))
         resolved = self._resolve_container(name)
         if isinstance(resolved, str):
             return resolved

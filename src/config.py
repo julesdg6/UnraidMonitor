@@ -255,11 +255,11 @@ class UnraidConfig:
             verify_ssl=data.get("verify_ssl", True),
             poll_system_seconds=max(polling.get("system", 30), 10),
             poll_array_seconds=max(polling.get("array", 300), 30),
-            cpu_temp_threshold=thresholds.get("cpu_temp", 80),
-            cpu_usage_threshold=thresholds.get("cpu_usage", 95),
-            memory_usage_threshold=thresholds.get("memory_usage", 90),
-            disk_temp_threshold=thresholds.get("disk_temp", 50),
-            array_usage_threshold=thresholds.get("array_usage", 85),
+            cpu_temp_threshold=max(20, min(thresholds.get("cpu_temp", 80), 120)),
+            cpu_usage_threshold=max(1, min(thresholds.get("cpu_usage", 95), 100)),
+            memory_usage_threshold=max(1, min(thresholds.get("memory_usage", 90), 100)),
+            disk_temp_threshold=max(20, min(thresholds.get("disk_temp", 50), 100)),
+            array_usage_threshold=max(1, min(thresholds.get("array_usage", 85), 100)),
         )
 
 

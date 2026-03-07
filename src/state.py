@@ -1,4 +1,5 @@
 import threading
+from dataclasses import replace
 
 from src.models import ContainerInfo
 
@@ -20,11 +21,12 @@ class ContainerStateManager:
 
     def get(self, name: str) -> ContainerInfo | None:
         with self._lock:
-            return self._containers.get(name)
+            c = self._containers.get(name)
+            return replace(c) if c is not None else None
 
     def get_all(self) -> list[ContainerInfo]:
         with self._lock:
-            return list(self._containers.values())
+            return [replace(c) for c in self._containers.values()]
 
     def get_all_names(self) -> set[str]:
         with self._lock:
@@ -41,11 +43,11 @@ class ContainerStateManager:
             # Check for exact match first
             for c in self._containers.values():
                 if c.name.lower() == partial_lower:
-                    return [c]
+                    return [replace(c)]
 
             # Fall back to substring match
             return [
-                c for c in self._containers.values()
+                replace(c) for c in self._containers.values()
                 if partial_lower in c.name.lower()
             ]
 

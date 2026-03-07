@@ -49,6 +49,7 @@ def health_command(
     unraid_client: "UnraidClientWrapper | None" = None,
     unraid_system_monitor: "UnraidSystemMonitor | None" = None,
     unraid_array_monitor: "ArrayMonitor | None" = None,
+    alert_manager: object | None = None,
 ) -> Callable[[Message], Awaitable[None]]:
     """Factory for /health command handler."""
 
@@ -76,7 +77,8 @@ def health_command(
         if log_watcher:
             status = "✅ Running" if log_watcher._running else "🔴 Stopped"
             watched = len(log_watcher.containers)
-            lines.append(f"  Log Watcher: {status} ({watched} containers)")
+            drop_info = f", {log_watcher._total_drops} dropped" if log_watcher._total_drops else ""
+            lines.append(f"  Log Watcher: {status} ({watched} containers{drop_info})")
         else:
             lines.append("  Log Watcher: ⚪ Not configured")
 
@@ -106,6 +108,12 @@ def health_command(
                 lines.append(f"    Array: {status}")
         else:
             lines.append("  Unraid: ⚪ Not configured")
+
+        # Alert queue depth
+        if alert_manager and hasattr(alert_manager, "_queued_alerts"):
+            queued = len(alert_manager._queued_alerts)
+            if queued > 0:
+                lines.append(f"  Alert Queue: {queued} pending")
 
         # Crash tracker stats
         if monitor:

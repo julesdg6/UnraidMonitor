@@ -2,6 +2,7 @@ import logging
 import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from src.utils.formatting import extract_container_from_alert, truncate_message, safe_edit, strip_log_timestamps
@@ -224,7 +225,7 @@ def ignore_toggle_callback(
         if callback.message:
             try:
                 await callback.message.edit_reply_markup(reply_markup=keyboard)
-            except Exception:
+            except TelegramBadRequest:
                 pass  # Ignore if message hasn't changed
 
     return handler

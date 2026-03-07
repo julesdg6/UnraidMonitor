@@ -159,8 +159,18 @@ class UnraidClientWrapper:
         if not self._connected or self._session is None:
             raise UnraidConnectionError("Not connected to Unraid server")
 
+    async def _reconnect_if_needed(self) -> None:
+        """Attempt to reconnect if the connection was lost."""
+        if self._connected and self._session is not None:
+            return
+        logger.info("Unraid connection lost, attempting reconnect...")
+        try:
+            await self.connect()
+        except Exception as e:
+            logger.error(f"Unraid reconnect failed: {e}")
+
     async def _execute_query(self, query: str) -> dict[str, Any]:
-        """Execute a GraphQL query.
+        """Execute a GraphQL query, reconnecting once if needed.
 
         Args:
             query: GraphQL query string.
@@ -171,6 +181,9 @@ class UnraidClientWrapper:
         Raises:
             UnraidConnectionError: If query fails.
         """
+        # Auto-reconnect if connection was lost
+        if not self._connected or self._session is None:
+            await self._reconnect_if_needed()
         self._ensure_connected()
 
         payload = {"query": query}
@@ -193,11 +206,14 @@ class UnraidClientWrapper:
 
                 if "errors" in result:
                     errors = result["errors"]
+                    logger.error(f"GraphQL query returned errors: {errors}")
                     raise UnraidConnectionError(f"GraphQL errors: {errors}")
 
                 return result.get("data", {})
 
         except aiohttp.ClientError as e:
+            # Mark disconnected so next call will try to reconnect
+            self._connected = False
             raise UnraidConnectionError(f"Connection failed: {e}")
 
     async def get_system_metrics(self) -> dict[str, Any]:

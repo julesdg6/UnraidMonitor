@@ -150,7 +150,3 @@ def handle_llm_error(error: Exception) -> APIErrorResult:
         is_retryable=False,
         log_level=logging.ERROR,
     )
-
-
-# Backward-compatible alias for existing callers
-handle_anthropic_error = handle_llm_error

@@ -116,6 +116,12 @@ class AlertManagerProxy:
     async def send_resource_alert(self, **kwargs):
         await self._send_alert("send_resource_alert", **kwargs)
 
+    async def send_recovery_alert(self, container_name: str):
+        await self._send_alert("send_recovery_alert", container_name=container_name)
+
+    async def send_health_alert(self, **kwargs):
+        await self._send_alert("send_health_alert", **kwargs)
+
 
 # ---------------------------------------------------------------------------
 # Background task tracker -- used by start_monitoring and shutdown
@@ -132,15 +138,16 @@ class _BackgroundTasks:
         self.unraid_client: UnraidClientWrapper | None = None
         self.unraid_system_monitor: UnraidSystemMonitor | None = None
         self.unraid_array_monitor: ArrayMonitor | None = None
+        self.mute_managers: list = []
         self._tasks: list[asyncio.Task] = []
 
     def add_task(self, task: asyncio.Task) -> None:
         self._tasks.append(task)
 
     async def shutdown(self) -> None:
-        """Stop all monitors and cancel all tasks."""
+        """Stop all monitors, flush state, and cancel all tasks."""
         if self.monitor:
-            self.monitor.stop()
+            await self.monitor.stop_async()
         if self.log_watcher:
             self.log_watcher.stop()
         if self.resource_monitor is not None:
@@ -160,6 +167,12 @@ class _BackgroundTasks:
                 pass
         if self.unraid_client:
             await self.unraid_client.disconnect()
+        # Flush any deferred mute state to disk
+        for mgr in self.mute_managers:
+            try:
+                mgr.flush()
+            except Exception as e:
+                logger.error(f"Failed to flush mute manager: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +583,7 @@ async def start_monitoring(
         unraid_system_monitor=unraid_system_monitor,
         server_mute_manager=server_mute_manager,
         array_mute_manager=array_mute_manager,
+        array_monitor=unraid_array_monitor,
         memory_monitor=memory_monitor,
         pattern_analyzer=pattern_analyzer,
         nl_processor=nl_processor,
@@ -585,6 +599,13 @@ async def start_monitoring(
     bg.unraid_client = unraid_client
     bg.unraid_system_monitor = unraid_system_monitor
     bg.unraid_array_monitor = unraid_array_monitor
+
+    # Track mute managers for flush on shutdown
+    bg.mute_managers = [mute_manager]
+    if server_mute_manager:
+        bg.mute_managers.append(server_mute_manager)
+    if array_mute_manager:
+        bg.mute_managers.append(array_mute_manager)
 
     # Register /health command with references to all monitors
     from aiogram.filters import Command as AiogramCommand
@@ -602,6 +623,7 @@ async def start_monitoring(
             unraid_client=unraid_client,
             unraid_system_monitor=unraid_system_monitor,
             unraid_array_monitor=unraid_array_monitor,
+            alert_manager=alert_manager,
         ),
         AiogramCommand("health"),
     )
@@ -643,6 +665,31 @@ async def start_monitoring(
                     )
                 except Exception as send_err:
                     logger.error(f"Failed to send Unraid error to {cid}: {send_err}")
+
+    # Periodic task: flush dirty mute state & send expiry notifications
+    async def _mute_maintenance_loop() -> None:
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+            for mgr in bg.mute_managers:
+                try:
+                    mgr.flush()
+                    expired = mgr.drain_expired()
+                    if expired and alert_manager:
+                        for key in expired:
+                            for cid in chat_id_store.get_all_chat_ids():
+                                try:
+                                    await send_with_retry(
+                                        bot.send_message,
+                                        chat_id=cid,
+                                        text=f"🔔 Mute expired for *{escape_markdown(key)}*",
+                                        parse_mode="Markdown",
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to send mute expiry notification: {e}")
+                except Exception as e:
+                    logger.error(f"Mute maintenance error: {e}")
+
+    bg.add_task(asyncio.create_task(_mute_maintenance_loop()))
 
     logger.info("All monitors started")
 

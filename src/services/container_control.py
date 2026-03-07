@@ -132,6 +132,7 @@ class ContainerController:
                     **run_config,
                 )
                 # Reconnect secondary networks
+                failed_networks: list[str] = []
                 if secondary_networks:
                     new_container = await asyncio.to_thread(
                         self.docker_client.containers.get, container_name
@@ -143,12 +144,16 @@ class ContainerController:
                                 network.connect, new_container, **endpoint
                             )
                         except Exception as net_err:
+                            failed_networks.append(net_name)
                             logger.warning(
                                 f"Failed to reconnect {container_name} to network {net_name}: {net_err}"
                             )
 
                 logger.info(f"Recreated container: {container_name}")
-                return f"✅ {container_name} updated (pulled {image_name} and recreated)"
+                msg = f"✅ {container_name} updated (pulled {image_name} and recreated)"
+                if failed_networks:
+                    msg += f"\n⚠️ Failed to reconnect networks: {', '.join(failed_networks)}"
+                return msg
 
             except Exception as recreate_err:
                 # Step 5: Rollback -- try to recreate with old image

@@ -6,10 +6,8 @@ from unittest.mock import MagicMock, AsyncMock
 async def test_help_command_shows_category_buttons():
     """Test that /help shows category selection buttons."""
     from src.bot.commands import help_command
-    from src.state import ContainerStateManager
 
-    state = ContainerStateManager()
-    handler = help_command(state)
+    handler = help_command()
 
     message = MagicMock()
     message.answer = AsyncMock()

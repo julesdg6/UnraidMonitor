@@ -5,7 +5,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.utils.api_errors import handle_anthropic_error, handle_llm_error, APIErrorResult
+from src.utils.api_errors import handle_llm_error, APIErrorResult
+
+# Alias removed from source; tests now use handle_llm_error directly
+handle_anthropic_error = handle_llm_error
 
 
 class TestHandleAnthropicError:
@@ -193,9 +196,10 @@ class TestHandleLLMError:
         except ImportError:
             pytest.skip("openai module not available")
 
-    def test_handle_llm_error_backward_compat(self):
-        """handle_anthropic_error is a backward-compatible alias for handle_llm_error."""
-        assert handle_anthropic_error is handle_llm_error
+    def test_handle_llm_error_callable(self):
+        """handle_llm_error is callable and handles generic errors."""
+        result = handle_llm_error(ValueError("test"))
+        assert isinstance(result, APIErrorResult)
 
     def test_handle_llm_error_generic(self):
         """Generic exceptions are handled by handle_llm_error with type name in message."""

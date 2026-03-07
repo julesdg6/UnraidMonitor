@@ -89,8 +89,6 @@ def with_telegram_retry(max_retries: int = 3):
                     logger.error(f"Telegram API error in {func.__name__}: {e}")
                     raise
 
-            return None
-
         return wrapper
 
     return decorator

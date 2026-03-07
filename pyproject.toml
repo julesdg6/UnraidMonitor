@@ -17,7 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 ai = [
     "anthropic>=0.40.0,<1.0.0",
-    "openai>=1.0.0",
+    "openai>=1.50.0,<2.0.0",
 ]
 
 [tool.pytest.ini_options]

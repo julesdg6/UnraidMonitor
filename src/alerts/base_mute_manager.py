@@ -28,6 +28,7 @@ class BaseMuteManager:
         self._lock = threading.RLock()
         self._load()
         self._dirty = False
+        self._recently_expired: list[str] = []
 
     def _is_muted(self, key: str) -> bool:
         """Check if a key is currently muted.
@@ -44,6 +45,7 @@ class BaseMuteManager:
             if datetime.now() >= expiry:
                 del self._mutes[key]
                 self._dirty = True
+                self._recently_expired.append(key)
                 return False
 
             return True
@@ -98,6 +100,13 @@ class BaseMuteManager:
             if expired:
                 self._dirty = True
 
+    def drain_expired(self) -> list[str]:
+        """Return and clear the list of recently expired mute keys."""
+        with self._lock:
+            expired = self._recently_expired[:]
+            self._recently_expired.clear()
+            return expired
+
     def flush(self) -> None:
         """Persist deferred changes to disk if dirty."""
         with self._lock:
@@ -115,10 +124,13 @@ class BaseMuteManager:
             try:
                 with open(self._json_path, encoding="utf-8") as f:
                     data = json.load(f)
-                    self._mutes = {
-                        key: datetime.fromisoformat(exp)
-                        for key, exp in data.items()
-                    }
+                    self._mutes = {}
+                    for key, exp in data.items():
+                        dt = datetime.fromisoformat(exp)
+                        # Ensure naive-local for consistent comparison with datetime.now()
+                        if dt.tzinfo is not None:
+                            dt = dt.replace(tzinfo=None)
+                        self._mutes[key] = dt
             except (json.JSONDecodeError, IOError, ValueError) as e:
                 logger.warning(f"Failed to load mutes from {self._json_path}: {e}")
                 self._mutes = {}
@@ -141,7 +153,7 @@ class BaseMuteManager:
                     suffix=".json",
                 )
                 try:
-                    os.fchmod(fd, 0o666)
+                    os.fchmod(fd, 0o644)
                     with os.fdopen(fd, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=2)
                     os.replace(temp_path, self._json_path)  # Atomic on POSIX

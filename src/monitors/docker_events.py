@@ -168,6 +168,7 @@ class DockerEventMonitor:
         self._alert_task: asyncio.Task | None = None
         self._backoff_seconds = self.INITIAL_BACKOFF_SECONDS
         self._crash_tracker = CrashTracker()
+        self._unhealthy_alerted: set[str] = set()  # Track containers already alerted as unhealthy
 
     @property
     def shared_client(self) -> SharedDockerClient | None:
@@ -285,15 +286,40 @@ class DockerEventMonitor:
                 except asyncio.TimeoutError:
                     continue
 
-                if event.get("_alert_type") == "recovery":
+                if event is None:
+                    break  # Sentinel: shutdown requested
+                alert_type = event.get("_alert_type")
+                if alert_type == "recovery":
                     await self._handle_recovery_event(event)
+                elif alert_type == "health":
+                    await self._handle_health_event(event)
                 else:
                     await self._handle_crash_event(event)
             except Exception as e:
                 logger.error(f"Error processing alert: {e}")
 
+    async def stop_async(self) -> None:
+        """Stop monitoring and drain pending alerts."""
+        self._running = False
+        # Signal the alert processor to finish by putting a sentinel
+        if self._alert_task and not self._alert_task.done():
+            try:
+                self._pending_alerts.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
+            try:
+                await asyncio.wait_for(self._alert_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._alert_task.cancel()
+        if self._client:
+            try:
+                self._client.close()
+            except Exception as e:
+                logger.debug(f"Error closing Docker client during stop: {e}")
+        logger.info("Stopping Docker event monitor")
+
     def stop(self) -> None:
-        """Stop monitoring."""
+        """Stop monitoring (sync version, does not drain alerts)."""
         self._running = False
         if self._alert_task:
             self._alert_task.cancel()
@@ -337,6 +363,21 @@ class DockerEventMonitor:
                         logger.debug("Alert queue full, dropping recovery event")
                     except Exception as e:
                         logger.error(f"Failed to queue recovery event: {e}")
+
+                # Queue health_status events for unhealthy alerts
+                if action == "health_status" and self.alert_manager:
+                    health = event.get("Actor", {}).get("Attributes", {}).get("health_status", "")
+                    if health == "unhealthy":
+                        try:
+                            self._loop.call_soon_threadsafe(
+                                self._pending_alerts.put_nowait,
+                                {**event, "_alert_type": "health"},
+                            )
+                        except (asyncio.QueueFull, Exception):
+                            pass
+                    elif health == "healthy":
+                        # Clear the alerted flag so we re-alert if it goes unhealthy again
+                        self._unhealthy_alerted.discard(container_name)
 
                 # Queue die events for crash alert processing (thread-safe)
                 if action == "die" and self.alert_manager:
@@ -461,6 +502,30 @@ class DockerEventMonitor:
         logger.info(f"Container {container_name} recovered after crash")
 
         await self.alert_manager.send_recovery_alert(container_name)
+
+    async def _handle_health_event(self, event: dict[str, Any]) -> None:
+        """Handle a container health_status event — alert on unhealthy transition."""
+        if not self.alert_manager:
+            return
+
+        container_name = event.get("Actor", {}).get("Attributes", {}).get("name", "")
+        if not container_name or container_name in self.ignored_containers:
+            return
+
+        # Only alert once per unhealthy transition
+        if container_name in self._unhealthy_alerted:
+            return
+        self._unhealthy_alerted.add(container_name)
+
+        # Check mute
+        if self.mute_manager and self.mute_manager.is_muted(container_name):
+            return
+
+        logger.info(f"Container {container_name} is unhealthy")
+        await self.alert_manager.send_health_alert(
+            container_name=container_name,
+            health_status="unhealthy",
+        )
 
     def _get_container_image(self, container_name: str) -> str:
         """Get image name for a container from state manager."""

@@ -129,6 +129,7 @@ def register_commands(
     unraid_system_monitor: Any | None = None,
     server_mute_manager: Any | None = None,
     array_mute_manager: Any | None = None,
+    array_monitor: Any | None = None,
     memory_monitor: "MemoryMonitor | None" = None,
     pattern_analyzer: Any | None = None,
     nl_processor: Any | None = None,
@@ -139,7 +140,7 @@ def register_commands(
 
     Returns tuple of (ContainerController, DiagnosticService) if docker_client provided.
     """
-    dp.message.register(help_command(state), Command("help"))
+    dp.message.register(help_command(), Command("help"))
     dp.callback_query.register(
         help_section_callback(),
         F.data.startswith("help:") & (F.data != "help:back"),
@@ -310,7 +311,7 @@ def register_commands(
                 Command("mute-array"),
             )
             dp.message.register(
-                unmute_array_command(array_mute_manager),
+                unmute_array_command(array_mute_manager, array_monitor=array_monitor),
                 Command("unmute-array"),
             )
 

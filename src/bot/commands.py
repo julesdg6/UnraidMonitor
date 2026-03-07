@@ -7,7 +7,7 @@ import docker
 
 from src.models import ContainerInfo
 from src.state import ContainerStateManager
-from src.utils.formatting import format_bytes, format_uptime, escape_markdown, safe_reply, safe_edit
+from src.utils.formatting import format_bytes, format_uptime, escape_markdown, safe_reply, safe_edit, truncate_callback_data
 from src.utils.sanitize import sanitize_logs_for_display
 from src.bot.resources_command import format_progress_bar
 
@@ -81,7 +81,7 @@ def _build_help_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def help_command(state: ContainerStateManager) -> Callable[[Message], Awaitable[None]]:
+def help_command() -> Callable[[Message], Awaitable[None]]:
     """Factory for /help command handler."""
     async def handler(message: Message) -> None:
         await safe_reply(message, HELP_OVERVIEW, reply_markup=_build_help_keyboard())
@@ -239,6 +239,18 @@ def status_command(
                 return
             elif len(matches) == 1:
                 response = await format_container_details(matches[0], resource_monitor)
+                name = matches[0].name
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="📋 Logs", callback_data=truncate_callback_data("logs:", f"{name}:50")),
+                            InlineKeyboardButton(text="🔍 Diagnose", callback_data=truncate_callback_data("diagnose:", name)),
+                            InlineKeyboardButton(text="🔄 Restart", callback_data=truncate_callback_data("restart:", name)),
+                        ],
+                    ]
+                )
+                await safe_reply(message, response, reply_markup=keyboard)
+                return
             else:
                 names = ", ".join(escape_markdown(m.name) for m in matches)
                 response = f"Multiple matches found: {names}\n\n_Be more specific_"

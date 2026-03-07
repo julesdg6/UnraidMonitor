@@ -208,6 +208,10 @@ Messages use Markdown parse mode. Use `safe_reply()` and `safe_edit()` from `src
 - Test the factory return value directly: `handler = my_command(state); await handler(message)`
 - `ContainerInfo` and `ContainerStateManager` are constructed directly in tests (no fixtures)
 
+## Terminal Multiplexer (cmux)
+
+This project uses **cmux** as the terminal multiplexer. Use `cmux --help` to discover available commands and maximise usage (e.g., `list-workspaces`, `new-split`, `read-screen`, `send`, `send-key`, `list-panes`, etc.). Prefer cmux commands over tmux/screen equivalents.
+
 ## Environment Variables
 
 ```bash

@@ -275,9 +275,8 @@ class MemoryMonitor:
             self._killed_containers.remove(name)
             logger.info(f"User declined restart of {name}")
 
-        self._restart_prompted = False
-
         if not self._killed_containers:
+            self._restart_prompted = False
             self._state = MemoryState.NORMAL
 
     def get_killed_containers(self) -> list[str]:

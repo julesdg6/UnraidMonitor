@@ -309,11 +309,14 @@ def mute_array_command(
 
 def unmute_array_command(
     mute_manager: "ArrayMuteManager",
+    array_monitor: "ArrayMonitor | None" = None,
 ) -> Callable[[Message], Awaitable[None]]:
     """Factory for /unmute-array command handler."""
 
     async def handler(message: Message) -> None:
         if mute_manager.unmute_array():
+            if array_monitor is not None:
+                array_monitor.clear_alert_state()
             await safe_reply(
                 message,
                 "🔔 *Unmuted array alerts*\n\n"
@@ -330,10 +333,13 @@ def _format_disk_line(disk: dict) -> str:
     name = disk.get("name", "unknown")
     temp = disk.get("temp", 0)
     status = disk.get("status", "").replace("DISK_", "")
-    size_kb = disk.get("size", 0)
+    try:
+        size_kb = int(disk.get("size", 0))
+    except (ValueError, TypeError):
+        size_kb = 0
 
-    # Convert size from kilobytes to TB (decimal: 1 TB = 10^12 bytes = 10^9 KB)
-    size_tb = size_kb / (1000 * 1000 * 1000) if size_kb else 0
+    # Convert size from kilobytes to TB (binary: 1 TiB = 1024^3 KB)
+    size_tb = size_kb / (1024**3) if size_kb else 0
 
     status_icon = "✅" if status == "OK" else "⚠️"
 

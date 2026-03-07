@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from typing import Callable, Awaitable, TYPE_CHECKING
 
 import docker
@@ -105,6 +106,7 @@ class LogWatcher:
         self._client: docker.DockerClient | None = None
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        self._total_drops: int = 0
 
     def connect(self) -> None:
         """Connect to Docker socket."""
@@ -161,12 +163,25 @@ class LogWatcher:
 
         loop = asyncio.get_event_loop()
 
+        _drop_count = 0
+        _last_drop_warn = 0.0
+
         def _safe_put(item: str | None) -> None:
             """Put item in queue, dropping if full (log storm protection)."""
+            nonlocal _drop_count, _last_drop_warn
             try:
                 queue.put_nowait(item)
             except asyncio.QueueFull:
-                pass  # Drop line during log storms to prevent memory growth
+                _drop_count += 1
+                self._total_drops += 1
+                now = time.monotonic()
+                if now - _last_drop_warn >= 60.0:
+                    logger.warning(
+                        f"Log queue full for {container_name}: "
+                        f"dropped {_drop_count} lines (log storm protection)"
+                    )
+                    _drop_count = 0
+                    _last_drop_warn = now
 
         def stream_to_queue():
             """Blocking function that streams logs and puts them in the queue."""

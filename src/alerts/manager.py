@@ -233,6 +233,33 @@ Exceeded for: {duration_str}
         except Exception as e:
             logger.error(f"Failed to send resource alert: {e}")
 
+    async def send_health_alert(self, container_name: str, health_status: str) -> None:
+        """Send alert when a container's health check transitions to unhealthy."""
+        safe_name = escape_markdown(container_name)
+        text = f"🏥 *UNHEALTHY:* {safe_name}\n\nHealth check status: {health_status}"
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🔄 Restart", callback_data=truncate_callback_data("restart:", container_name)),
+                    InlineKeyboardButton(text="📋 Logs", callback_data=truncate_callback_data("logs:", f"{container_name}:50")),
+                    InlineKeyboardButton(text="🔍 Diagnose", callback_data=truncate_callback_data("diagnose:", container_name)),
+                ],
+            ]
+        )
+
+        try:
+            await send_with_retry(
+                self.bot.send_message,
+                chat_id=self.chat_id,
+                text=text,
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+            logger.info(f"Sent health alert for {container_name}")
+        except Exception as e:
+            logger.error(f"Failed to send health alert: {e}")
+
     async def send_recovery_alert(self, container_name: str) -> None:
         """Send a brief recovery notification when a crashed container starts."""
         text = f"✅ *{escape_markdown(container_name)}* recovered and is running again."

@@ -131,7 +131,7 @@ class IgnoreManager:
         finally:
             with self._lock:
                 self._defer_save = False
-            self._save_runtime_ignores()
+                self._save_runtime_ignores()
 
     def is_ignored(self, container: str, message: str) -> bool:
         """Check if message should be ignored.
