@@ -710,9 +710,6 @@ def create_toggle_callback(
 
         # Refresh the keyboard
         keyboard = build_adjust_keyboard(session.classifications, category)
-        emoji = _CATEGORY_EMOJI.get(category, "")
-        label = _CATEGORY_LABELS.get(category, category)
-
         if callback.message:
             try:
                 await callback.message.edit_reply_markup(reply_markup=keyboard)

@@ -5,7 +5,7 @@ from typing import Callable, Awaitable, TYPE_CHECKING
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from src.utils.formatting import format_mute_expiry, safe_edit, escape_markdown, safe_reply
+from src.utils.formatting import format_mute_expiry, safe_edit, escape_markdown
 from src.bot.commands import format_status_summary
 from src.bot.resources_command import format_resources_summary
 from src.bot.unraid_commands import format_server_brief, format_server_detailed, format_disks

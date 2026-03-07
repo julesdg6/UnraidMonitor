@@ -2,11 +2,6 @@
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import anthropic
-    import openai
 
 logger = logging.getLogger(__name__)
 

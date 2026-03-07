@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Callable, Awaitable, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import docker
 from docker.models.containers import Container

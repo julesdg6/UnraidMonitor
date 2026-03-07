@@ -9,7 +9,7 @@ from aiogram.enums import ChatAction
 
 from src.state import ContainerStateManager
 from src.services.diagnostic import DiagnosticService
-from src.utils.formatting import safe_reply, safe_edit
+from src.utils.formatting import safe_reply
 
 logger = logging.getLogger(__name__)
 

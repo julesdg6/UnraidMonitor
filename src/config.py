@@ -6,9 +6,9 @@ from typing import Any
 
 import yaml
 from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Default containers to watch for log errors

@@ -57,12 +57,12 @@ def health_command(
         uptime = _format_health_uptime(start_time)
 
         lines = [
-            f"🏥 *Bot Health*",
-            f"",
+            "🏥 *Bot Health*",
+            "",
             f"*Version:* {BOT_VERSION}",
             f"*Uptime:* {uptime}",
-            f"",
-            f"*Monitors:*",
+            "",
+            "*Monitors:*",
         ]
 
         # Docker event monitor

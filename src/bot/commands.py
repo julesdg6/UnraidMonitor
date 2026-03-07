@@ -331,6 +331,6 @@ def logs_command(
             await message.answer(f"❌ Container '{container.name}' not found in Docker")
         except Exception as e:
             logger.error(f"Error getting logs for {container.name}: {e}", exc_info=True)
-            await message.answer(f"❌ Error getting logs. Check bot logs for details.")
+            await message.answer("❌ Error getting logs. Check bot logs for details.")
 
     return handler

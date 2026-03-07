@@ -13,6 +13,7 @@ from src.utils.formatting import truncate_message, safe_reply, format_mute_expir
 
 if TYPE_CHECKING:
     from src.unraid.monitors.system_monitor import UnraidSystemMonitor
+    from src.unraid.monitors.array_monitor import ArrayMonitor
     from src.alerts.server_mute_manager import ServerMuteManager
     from src.alerts.array_mute_manager import ArrayMuteManager
 
@@ -422,13 +423,13 @@ def array_command(
             lines.append(f"*Storage:* {used_tb:.1f} / {total_tb:.1f} TB ({percent_used:.0f}% used)")
             lines.append(f"*Free:* {free_tb:.1f} TB")
 
-        lines.append(f"\n*Devices:*")
+        lines.append("\n*Devices:*")
         lines.append(f"  Data disks: {data_disk_count}")
         lines.append(f"  Parity: {parity_count}")
         lines.append(f"  Cache: {cache_count}")
 
         if issues:
-            lines.append(f"\n*Issues:*")
+            lines.append("\n*Issues:*")
             lines.extend(issues)
 
         await safe_reply(message, "\n".join(lines))

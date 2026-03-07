@@ -226,8 +226,6 @@ class ContainerController:
         """
         config = attrs.get("Config", {})
         host_config = attrs.get("HostConfig", {})
-        networking = attrs.get("NetworkingConfig", {})
-
         run_config: dict[str, Any] = {}
 
         # From Config
