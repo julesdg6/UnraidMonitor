@@ -2,6 +2,14 @@
 
 All notable changes to UnraidMonitor will be documented in this file.
 
+## [0.9.3] - 2026-03-12
+
+### Fixed
+- **Ruff lint errors** - Resolved all 20 pre-existing ruff lint violations across the codebase
+
+### Changed
+- **`.env.example` updated** - Added `OPENAI_API_KEY` and `OLLAMA_HOST` entries with improved comments reflecting multi-provider support
+
 ## [0.9.2] - 2026-03-07
 
 ### Added
