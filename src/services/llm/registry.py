@@ -187,6 +187,10 @@ class ProviderRegistry:
     def _auto_select_provider(self) -> None:
         """Pick the first available provider in priority order: anthropic > openai > ollama.
 
+        For Anthropic and OpenAI, selects the first well-known model for that provider.
+        For Ollama, uses ``self._ollama_default_model`` (default ``"qwen2.5:7b"``) rather
+        than the first arbitrarily-ordered discovered model.
+
         Modifies ``_default_provider_name`` and ``_default_model_name`` in place.
         If no provider is available both attributes remain ``None``.
         """
