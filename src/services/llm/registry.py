@@ -93,10 +93,12 @@ class ProviderRegistry:
             if provider_name:
                 self._default_provider_name = provider_name
                 self._default_model_name = default_model
-        elif anthropic_client is not None:
-            # Auto-select anthropic with the first well-known model
-            self._default_provider_name = "anthropic"
-            self._default_model_name = _ANTHROPIC_MODELS[0].id
+            else:
+                # default_model can't be served by any configured provider; auto-select
+                self._auto_select_provider()
+        else:
+            # No default_model specified; auto-select the first available provider
+            self._auto_select_provider()
 
     # ------------------------------------------------------------------
     # Public API
@@ -179,6 +181,22 @@ class ProviderRegistry:
     # ------------------------------------------------------------------
     # Provider auto-detection
     # ------------------------------------------------------------------
+
+    def _auto_select_provider(self) -> None:
+        """Pick the first available provider in priority order: anthropic > openai > ollama.
+
+        Modifies ``_default_provider_name`` and ``_default_model_name`` in place.
+        If no provider is available both attributes remain ``None``.
+        """
+        if self._anthropic_client is not None:
+            self._default_provider_name = "anthropic"
+            self._default_model_name = _ANTHROPIC_MODELS[0].id
+        elif self._openai_client is not None:
+            self._default_provider_name = "openai"
+            self._default_model_name = _OPENAI_MODELS[0].id
+        elif self._ollama_client is not None and self._ollama_models:
+            self._default_provider_name = "ollama"
+            self._default_model_name = self._ollama_models[0].id
 
     def _detect_provider(self, model_name: str) -> str | None:
         """Detect which provider should serve *model_name*.
