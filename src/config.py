@@ -85,6 +85,7 @@ class AIConfig:
     default_model: str = "claude-haiku-4-5-20251001"
     anthropic_prompt_caching: bool = True
     ollama_host: str = "http://localhost:11434"
+    ollama_default_model: str = "qwen2.5:7b"
 
     @classmethod
     def from_dict(cls, data: dict) -> "AIConfig":
@@ -109,6 +110,7 @@ class AIConfig:
             default_model=data.get("default_model", "claude-haiku-4-5-20251001"),
             anthropic_prompt_caching=providers.get("anthropic", {}).get("prompt_caching", True),
             ollama_host=providers.get("ollama", {}).get("host", "http://localhost:11434"),
+            ollama_default_model=providers.get("ollama", {}).get("default_model", "qwen2.5:7b"),
         )
 
 

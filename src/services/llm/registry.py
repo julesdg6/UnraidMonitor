@@ -66,12 +66,14 @@ class ProviderRegistry:
         default_model: str | None = None,
         feature_models: dict[str, str] | None = None,
         data_dir: str | None = None,
+        ollama_default_model: str = "qwen2.5:7b",
     ) -> None:
         # Store raw clients
         self._anthropic_client = anthropic_client
         self._openai_client = openai_client
         self._ollama_client = ollama_client
         self._ollama_models: list[ModelInfo] = ollama_models or []
+        self._ollama_default_model = ollama_default_model
 
         # Per-feature model overrides (feature_name -> model_id)
         self._feature_models: dict[str, str] = feature_models or {}
@@ -196,7 +198,7 @@ class ProviderRegistry:
             self._default_model_name = _OPENAI_MODELS[0].id
         elif self._ollama_client is not None and self._ollama_models:
             self._default_provider_name = "ollama"
-            self._default_model_name = self._ollama_models[0].id
+            self._default_model_name = self._ollama_default_model
 
     def _detect_provider(self, model_name: str) -> str | None:
         """Detect which provider should serve *model_name*.

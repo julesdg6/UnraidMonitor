@@ -90,13 +90,27 @@ class TestRegistryConstruction:
         assert provider.provider_name == "openai"
 
     def test_default_model_auto_selects_ollama_when_only_ollama(self):
-        """With no explicit default_model and only ollama, registry should pick ollama."""
+        """With no explicit default_model and only ollama, registry should pick ollama
+        and use the ollama_default_model (qwen2.5:7b by default)."""
         models = _sample_ollama_models()
         reg = ProviderRegistry(ollama_client=_make_ollama_client(), ollama_models=models)
         provider = reg.get_provider()
         assert provider is not None
         assert provider.provider_name == "ollama"
-        assert provider.model_name == models[0].id
+        assert provider.model_name == "qwen2.5:7b"
+
+    def test_ollama_default_model_is_configurable(self):
+        """ollama_default_model parameter controls which model is auto-selected for Ollama."""
+        models = _sample_ollama_models()
+        reg = ProviderRegistry(
+            ollama_client=_make_ollama_client(),
+            ollama_models=models,
+            ollama_default_model="mistral:7b",
+        )
+        provider = reg.get_provider()
+        assert provider is not None
+        assert provider.provider_name == "ollama"
+        assert provider.model_name == "mistral:7b"
 
     def test_claude_default_model_falls_back_to_ollama_when_only_ollama(self):
         """When default_model is a Claude model but Anthropic is not configured,
