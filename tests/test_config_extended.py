@@ -176,3 +176,54 @@ ai:
                 app_config = AppConfig(settings)
 
                 assert app_config.ai.default_model == "gpt-4o"
+
+
+def test_ollama_host_env_var_overrides_yaml():
+    """OLLAMA_HOST env var must override the YAML ai.providers.ollama.host setting."""
+    yaml_content = """
+ai:
+  providers:
+    ollama:
+      host: "http://localhost:11434"
+"""
+    if "src.config" in sys.modules:
+        del sys.modules["src.config"]
+
+    with patch.dict("os.environ", {
+        "TELEGRAM_BOT_TOKEN": "test-token",
+        "TELEGRAM_ALLOWED_USERS": "123",
+        "OLLAMA_HOST": "http://192.168.1.100:11434",
+    }, clear=True):
+        with patch("src.config.open", mock_open(read_data=yaml_content)):
+            with patch("os.path.exists", return_value=True):
+                from src.config import Settings, AppConfig
+
+                settings = Settings(_env_file=None)
+                app_config = AppConfig(settings)
+
+                assert app_config.ai.ollama_host == "http://192.168.1.100:11434"
+
+
+def test_ollama_host_env_var_absent_uses_yaml():
+    """When OLLAMA_HOST is not set, YAML ai.providers.ollama.host is used unchanged."""
+    yaml_content = """
+ai:
+  providers:
+    ollama:
+      host: "http://192.168.1.50:11434"
+"""
+    if "src.config" in sys.modules:
+        del sys.modules["src.config"]
+
+    with patch.dict("os.environ", {
+        "TELEGRAM_BOT_TOKEN": "test-token",
+        "TELEGRAM_ALLOWED_USERS": "123",
+    }, clear=True):
+        with patch("src.config.open", mock_open(read_data=yaml_content)):
+            with patch("os.path.exists", return_value=True):
+                from src.config import Settings, AppConfig
+
+                settings = Settings(_env_file=None)
+                app_config = AppConfig(settings)
+
+                assert app_config.ai.ollama_host == "http://192.168.1.50:11434"
