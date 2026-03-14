@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>UnraidMonitorBot</Name>
+  <Repository>ghcr.io/julesdg6/unraidmonitor:latest</Repository>
+  <Registry>https://github.com/julesdg6/UnraidMonitor/pkgs/container/unraidmonitor</Registry>
+  <Branch>
+    <Tag>latest</Tag>
+    <TagDescription>Latest stable release</TagDescription>
+  </Branch>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://forums.unraid.net/topic/197009-support-unraid-monitor-bot/</Support>
+  <Project>https://github.com/julesdg6/UnraidMonitor</Project>
+  <Overview>Telegram bot for monitoring Docker containers and Unraid servers. Get real-time alerts, check container status, view logs, control containers,
+and monitor server health - all from Telegram.&#xD;
+&#xD;
+On first launch, an interactive setup wizard in Telegram guides you through connecting to your Unraid server and auto-classifies your containers into
+categories (priority, protected, watched, killable, ignored). Re-run anytime with /setup.&#xD;
+&#xD;
+Features:&#xD;
+- Interactive setup wizard with container auto-classification&#xD;
+- Container crash alerts with quick action buttons&#xD;
+- Resource monitoring (CPU/memory thresholds)&#xD;
+- Log watching with error detection&#xD;
+- AI-powered diagnostics and container classification (requires Anthropic API key)&#xD;
+- Unraid server monitoring (temps, array, disks)&#xD;
+- Natural language chat interface&#xD;
+- Smart ignore patterns for known errors&#xD;
+- Mute system for alerts&#xD;
+&#xD;
+Setup requires a Telegram bot token from @BotFather and your Telegram user ID. After installing, message your bot with /start to begin the setup
+wizard.</Overview>
+  <Category>Tools:Utilities Network:Management</Category>
+  <Icon>https://raw.githubusercontent.com/julesdg6/UnraidMonitor/main/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/julesdg6/UnraidMonitor/main/my-UnraidMonitorBot.xml</TemplateURL>
+  <ExtraParams></ExtraParams>
+  <DateInstalled></DateInstalled>
+  <Description>Telegram bot for monitoring Docker containers and Unraid servers with AI-powered diagnostics and interactive setup wizard.</Description>
+  <DonateText>Support development</DonateText>
+  <DonateLink>1773508457</DonateLink>
+  <DonateImg></DonateImg>
+
+  <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="ro" Description="Docker socket for container monitoring (read-only)" Type="Path" Display="always" Required="true" Mask="false">/var/run/docker.sock</Config>
+
+  <Config Name="Config Path" Target="/app/config" Default="/mnt/user/appdata/unraidmonitorbot/config" Mode="rw" Description="Configuration files location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/unraidmonitorbot/config</Config>
+
+  <Config Name="Data Path" Target="/app/data" Default="/mnt/user/appdata/unraidmonitorbot/data" Mode="rw" Description="Database and persistent data location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/unraidmonitorbot/data</Config>
+
+  <Config Name="Telegram Bot Token" Target="TELEGRAM_BOT_TOKEN" Default="" Mode="" Description="Bot token from @BotFather on Telegram" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+
+  <Config Name="Allowed Telegram Users" Target="TELEGRAM_ALLOWED_USERS" Default="" Mode="" Description="Comma-separated list of Telegram user IDs allowed to use the bot (get yours from @userinfobot)" Type="Variable" Display="always" Required="true" Mask="false"></Config>
+
+  <Config Name="Anthropic API Key" Target="ANTHROPIC_API_KEY" Default="" Mode="" Description="Optional: Enables AI diagnostics, smart container classification, and natural language chat via Claude models" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+  <Config Name="OpenAI API Key" Target="OPENAI_API_KEY" Default="" Mode="" Description="Optional: Enables AI features via OpenAI GPT models" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+  <Config Name="Ollama Host" Target="OLLAMA_HOST" Default="" Mode="" Description="Optional: Ollama server URL for local AI models (e.g. http://192.168.1.100:11434)" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+
+  <Config Name="Default Model" Target="DEFAULT_MODEL" Default="" Mode="" Description="Optional: Override the default AI model. Examples: qwen2.5:7b (Ollama), claude-haiku-4-5-20251001 (Anthropic), gpt-4o (OpenAI). Leave blank to use the built-in default for whichever provider is configured." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+
+  <Config Name="Unraid API Key" Target="UNRAID_API_KEY" Default="" Mode="" Description="Optional: Enables Unraid server monitoring (get from Unraid Connect plugin)" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+  <Config Name="Log Level" Target="LOG_LEVEL" Default="INFO" Mode="" Description="Logging verbosity (DEBUG, INFO, WARNING, ERROR)" Type="Variable" Display="advanced" Required="false" Mask="false">INFO</Config>
+
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file ownership (99 = nobody on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file ownership (100 = users on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+
+  <Config Name="Timezone" Target="TZ" Default="Europe/London" Mode="" Description="Timezone for timestamps (e.g. America/New_York)" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/London</Config>
+
+</Container>
