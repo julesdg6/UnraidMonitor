@@ -344,6 +344,10 @@ class AppConfig:
         if settings.default_model:
             self._ai.default_model = settings.default_model
 
+        # Environment variable OLLAMA_HOST overrides any YAML/code default
+        if settings.ollama_host:
+            self._ai.ollama_host = settings.ollama_host
+
         self._bot_config = BotConfig.from_dict(self._yaml_config.get("bot", {}))
         self._docker = DockerConfig.from_dict(self._yaml_config.get("docker", {}))
         self._resource_monitoring = ResourceConfig.from_dict(
